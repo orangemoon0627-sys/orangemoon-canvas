@@ -166,6 +166,7 @@ services:
         condition: service_healthy
     networks:
       - backend
+      - ingress
     ports:
       - "127.0.0.1:${APP_PORT:-4320}:3000"
     mem_limit: 192m
@@ -192,4 +193,7 @@ networks:
     internal: true
   egress:
     name: orangemoon-canvas-egress
+    driver: bridge
+  ingress:
+    name: orangemoon-canvas-ingress
     driver: bridge
