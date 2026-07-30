@@ -1,6 +1,23 @@
-# Infinite Canvas Agent
+# Orange Moon Canvas Agent
 
-本地 Canvas Agent 用来连接画布网页和用户电脑上的 Codex / Claude Code。本地开发时优先连接 `http://localhost:3000`，不需要先使用线上站点。
+Canvas Agent 有两种运行方式：本地模式连接用户电脑上的 Codex / Claude Code；云端模式通过 OpenAI Responses API 为登录用户提供托管画布对话。本地开发时优先连接 `http://localhost:3000`，不需要先使用线上站点。
+
+## 云端 Terra 模式
+
+生产 Compose 以 `CANVAS_AGENT_MODE=cloud` 启动云端模式。它通过内部 Platform API 验证 HttpOnly 登录会话，为每个账户分别维护对话、画布连接和执行状态，并继续通过网页审核画布写操作。
+
+必要的服务端环境变量：
+
+```env
+OPENAI_BASE_URL=https://provider.example/v1
+OPENAI_API_KEY=server-secret
+OPENAI_MODEL=gpt-5.6-terra
+OPENAI_REASONING_EFFORT=high
+CANVAS_AGENT_INTERNAL_SECRET=与平台 API 一致的独立随机密钥
+CANVAS_AGENT_MAX_CONCURRENT=2
+```
+
+供应商密钥和内部计费密钥只应放在服务器私有环境或 Secret 管理服务中，不得注入浏览器。云端对话按账户和画布持久化到 PostgreSQL；Terra 每轮调用先预授权，成功后按真实 Token 结算，失败或中断释放冻结积分。
 
 ## 启动
 

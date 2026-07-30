@@ -1,6 +1,12 @@
 #!/usr/bin/env node
-import { startHttpServer } from "./http-server.js";
-import { startMcpServer } from "./mcp-server.js";
 
-if (process.argv[2] === "mcp") await startMcpServer();
-else startHttpServer();
+if (process.argv[2] === "mcp") {
+    const { startMcpServer } = await import("./mcp-server.js");
+    await startMcpServer();
+} else if (process.env.CANVAS_AGENT_MODE === "cloud") {
+    const { startCloudHttpServer } = await import("./cloud-http-server.js");
+    startCloudHttpServer();
+} else {
+    const { startHttpServer } = await import("./http-server.js");
+    startHttpServer();
+}

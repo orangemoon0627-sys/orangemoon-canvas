@@ -8,6 +8,8 @@
 type RuntimeConfig = {
     ANALYTICS_GA4_ID?: string; // GA4 衡量 ID（G-XXXX）
     ANALYTICS_BAIDU_ID?: string; // 百度统计站点 ID
+    CANVAS_AGENT_URL?: string; // 服务端托管 Agent 的同源地址，例如 /canvas-agent
+    CANVAS_AGENT_MODEL?: string; // 托管 Agent 实际使用的模型标识
 };
 
 declare global {
@@ -27,4 +29,5 @@ function read(key: keyof RuntimeConfig, buildTime: string | undefined, fallback 
 
 export const ANALYTICS_GA4_ID = read("ANALYTICS_GA4_ID", import.meta.env.VITE_ANALYTICS_GA4_ID);
 export const ANALYTICS_BAIDU_ID = read("ANALYTICS_BAIDU_ID", import.meta.env.VITE_ANALYTICS_BAIDU_ID);
-
+export const MANAGED_CANVAS_AGENT_URL = read("CANVAS_AGENT_URL", import.meta.env.VITE_CANVAS_AGENT_URL);
+export const MANAGED_CANVAS_AGENT_MODEL = read("CANVAS_AGENT_MODEL", import.meta.env.VITE_CANVAS_AGENT_MODEL);

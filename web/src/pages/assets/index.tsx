@@ -1,6 +1,6 @@
 import { Copy, Download, PencilLine, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Card, Drawer, Empty, Form, Image, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
+import { Alert, App, Button, Card, Drawer, Empty, Form, Image, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
 import { saveAs } from "file-saver";
 
 import { useCopyText } from "@/hooks/use-copy-text";
@@ -40,6 +40,10 @@ export default function AssetsPage() {
     const addAsset = useAssetStore((state) => state.addAsset);
     const updateAsset = useAssetStore((state) => state.updateAsset);
     const removeAsset = useAssetStore((state) => state.removeAsset);
+    const syncing = useAssetStore((state) => state.syncing);
+    const syncError = useAssetStore((state) => state.syncError);
+    const ownerId = useAssetStore((state) => state.ownerId);
+    const bindOwner = useAssetStore((state) => state.bindOwner);
     const [keyword, setKeyword] = useState("");
     const [kindFilter, setKindFilter] = useState<AssetKind | "all">("all");
     const [page, setPage] = useState(1);
@@ -74,6 +78,10 @@ export default function AssetsPage() {
         const maxPage = Math.max(1, Math.ceil(filteredAssets.length / pageSize));
         setPage((value) => Math.min(value, maxPage));
     }, [filteredAssets.length, pageSize]);
+
+    useEffect(() => {
+        if (ownerId) void bindOwner(ownerId);
+    }, [bindOwner, ownerId]);
 
     const openCreate = () => {
         setEditingAsset(null);
@@ -191,8 +199,10 @@ export default function AssetsPage() {
                 <div className="pb-8">
                     <div className="mx-auto max-w-5xl text-center">
                         <h1 className="text-4xl font-semibold tracking-tight text-stone-950 dark:text-stone-100">我的资产</h1>
-                        <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">收藏常用文本和图片，按类型、标题和标签快速查找。</p>
+                        <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">{syncing ? "正在同步账户资产..." : `${validAssets.length} 项账户资产`}</p>
                     </div>
+
+                    {syncError ? <Alert className="mx-auto mt-5 max-w-3xl" type="warning" showIcon message="资产同步未完成" description={syncError} /> : null}
 
                     <div className="mx-auto mt-8 w-full max-w-2xl">
                         <Input.Search

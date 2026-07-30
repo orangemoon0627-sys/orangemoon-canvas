@@ -2,8 +2,9 @@ import axios from "axios";
 
 import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
-import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, isOrangeMoonManagedConfig, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
+import { orangeMoonPost } from "./orange-moon-gateway";
 
 type RequestOptions = { signal?: AbortSignal };
 
@@ -39,6 +40,26 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
             return await audioPluginBlob(result, format);
         } catch (error) {
             throw new Error(readAxiosError(error, "音频生成失败"));
+        }
+    }
+    if (isOrangeMoonManagedConfig(requestConfig)) {
+        if (!["mp3", "wav", "flac", "pcm"].includes(format)) throw new Error("MiniMax 音频当前支持 MP3、WAV、FLAC 或 PCM 格式");
+        try {
+            const audio = await orangeMoonPost<Blob>(
+                "/minimax/v1/audio/speech",
+                {
+                    model,
+                    input: prompt,
+                    voice: normalizeAudioVoiceValue(config.audioVoice),
+                    response_format: format,
+                    speed: Number(normalizeAudioSpeedValue(config.audioSpeed)),
+                },
+                { signal: options?.signal, responseType: "blob" },
+            );
+            await assertAudioBlob(audio);
+            return audio.type.startsWith("audio/") ? audio : new Blob([audio], { type: audioMimeType(format) });
+        } catch (error) {
+            throw new Error(readAxiosError(error, "MiniMax 音频生成失败"));
         }
     }
     assertAudioConfig(requestConfig, model);
@@ -104,9 +125,11 @@ async function assertAudioBlob(blob: Blob) {
 
 function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
-    if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; code?: number }>(error)) {
+    if (axios.isAxiosError<{ error?: string | { message?: string }; message?: string | string[]; msg?: string; code?: number }>(error)) {
         const responseData = error.response?.data;
-        return responseData?.msg || responseData?.error?.message || statusMessage(error.response?.status, fallback);
+        const errorMessage = typeof responseData?.error === "string" ? responseData.error : responseData?.error?.message;
+        const responseMessage = Array.isArray(responseData?.message) ? responseData.message.join("；") : responseData?.message;
+        return responseMessage || responseData?.msg || errorMessage || statusMessage(error.response?.status, fallback);
     }
     return error instanceof Error ? error.message : fallback;
 }

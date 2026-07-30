@@ -11,13 +11,14 @@ import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeValue, videoSizeLabel } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
-import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
+import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceReferenceLabel, seedanceReferenceLimitsForModel, seedanceReferenceSetError } from "@/lib/seedance-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
-import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
+import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, videoPollDelayMs, type VideoGenerationTask } from "@/services/api/video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
-import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { modelOptionLabel, modelOptionName, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -102,6 +103,8 @@ export default function VideoPage() {
     const agentTaskIdRef = useRef<string | undefined>(undefined);
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
+    const resolvedVideoConfig = buildVideoConfig(effectiveConfig, model);
+    const referenceLimits = seedanceReferenceLimitsForModel(model);
     const canGenerate = Boolean(prompt.trim());
 
     useEffect(() => {
@@ -118,12 +121,12 @@ export default function VideoPage() {
         const selectedFiles = Array.from(files || []);
         const unsupported = selectedFiles.filter((file) => !file.type.startsWith("image/") && !file.type.startsWith("video/") && !isSupportedAudioFile(file));
         if (unsupported.length) message.warning("已忽略不支持的参考资产，请使用图片、mp4/mov 视频或 mp3/wav 音频");
-        const imageFiles = selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= SEEDANCE_REFERENCE_LIMITS.imageMaxBytes).slice(0, SEEDANCE_REFERENCE_LIMITS.images - references.length);
-        const videoFiles = selectedFiles.filter((file) => file.type.startsWith("video/") && file.size <= SEEDANCE_REFERENCE_LIMITS.videoMaxBytes).slice(0, SEEDANCE_REFERENCE_LIMITS.videos - videoReferences.length);
-        const audioFiles = selectedFiles.filter((file) => isSupportedAudioFile(file) && file.size <= SEEDANCE_REFERENCE_LIMITS.audioMaxBytes).slice(0, SEEDANCE_REFERENCE_LIMITS.audios - audioReferences.length);
-        if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size > SEEDANCE_REFERENCE_LIMITS.imageMaxBytes)) message.warning("已忽略超过 30MB 的参考图");
-        if (selectedFiles.some((file) => file.type.startsWith("video/") && file.size > SEEDANCE_REFERENCE_LIMITS.videoMaxBytes)) message.warning("已忽略超过 50MB 的参考视频");
-        if (selectedFiles.some((file) => isSupportedAudioFile(file) && file.size > SEEDANCE_REFERENCE_LIMITS.audioMaxBytes)) message.warning("已忽略超过 15MB 的参考音频");
+        const imageFiles = selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= referenceLimits.imageMaxBytes).slice(0, Math.max(0, referenceLimits.images - references.length));
+        const videoFiles = selectedFiles.filter((file) => file.type.startsWith("video/") && file.size <= referenceLimits.videoMaxBytes).slice(0, Math.max(0, referenceLimits.videos - videoReferences.length));
+        const audioFiles = selectedFiles.filter((file) => isSupportedAudioFile(file) && file.size <= referenceLimits.audioMaxBytes).slice(0, Math.max(0, referenceLimits.audios - audioReferences.length));
+        if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size > referenceLimits.imageMaxBytes)) message.warning(`已忽略超过 ${Math.round(referenceLimits.imageMaxBytes / 1024 / 1024)}MB 的参考图`);
+        if (selectedFiles.some((file) => file.type.startsWith("video/") && file.size > referenceLimits.videoMaxBytes)) message.warning(`已忽略超过 ${Math.round(referenceLimits.videoMaxBytes / 1024 / 1024)}MB 的参考视频`);
+        if (selectedFiles.some((file) => isSupportedAudioFile(file) && file.size > referenceLimits.audioMaxBytes)) message.warning(`已忽略超过 ${Math.round(referenceLimits.audioMaxBytes / 1024 / 1024)}MB 的参考音频`);
         const nextReferences = await Promise.all(
             imageFiles.map(async (file) => {
                 const image = await uploadImage(file);
@@ -146,9 +149,9 @@ export default function VideoPage() {
             ),
             message.warning,
         );
-        setReferences((value) => [...value, ...nextReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.images));
-        setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.videos));
-        setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.audios));
+        setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
+        setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, referenceLimits.videos));
+        setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, referenceLimits.audios));
     };
 
     const addReferencesFromClipboard = async () => {
@@ -160,12 +163,12 @@ export default function VideoPage() {
                 return;
             }
             const nextReferences = await Promise.all(
-                blobs.slice(0, SEEDANCE_REFERENCE_LIMITS.images - references.length).map(async (blob, index) => {
+                blobs.slice(0, Math.max(0, referenceLimits.images - references.length)).map(async (blob, index) => {
                     const image = await uploadImage(blob);
                     return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
                 }),
             );
-            setReferences((value) => [...value, ...nextReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.images));
+            setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
             message.success(`已读取 ${nextReferences.length} 张参考图`);
         } catch {
             message.error("剪切板里没有可读取的图片");
@@ -234,12 +237,12 @@ export default function VideoPage() {
             openConfigDialog(true);
             return null;
         }
-        const videoReferenceError = seedanceVideoReferenceError(videoReferences);
+        const videoReferenceError = seedanceReferenceSetError(model, references, videoReferences, audioReferences);
         if (videoReferenceError) {
-            message.error(`${videoReferenceError}。${seedanceVideoReferenceHint}`);
+            message.error(videoReferenceError);
             return null;
         }
-        return { text, config: buildVideoConfig(effectiveConfig, model), references: [...references], videoReferences: [...videoReferences], audioReferences: [...audioReferences] };
+        return { text, config: resolvedVideoConfig, references: [...references], videoReferences: [...videoReferences], audioReferences: [...audioReferences] };
     };
 
     const retryResult = () => {
@@ -268,9 +271,9 @@ export default function VideoPage() {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
             const stored = await uploadImage(payload.dataUrl);
-            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }].slice(0, SEEDANCE_REFERENCE_LIMITS.images));
+            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }].slice(0, referenceLimits.images));
         } else if (payload.kind === "video") {
-            setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "video/mp4", url: payload.url, storageKey: payload.storageKey, width: payload.width, height: payload.height }].slice(0, SEEDANCE_REFERENCE_LIMITS.videos));
+            setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "video/mp4", url: payload.url, storageKey: payload.storageKey, width: payload.width, height: payload.height }].slice(0, referenceLimits.videos));
         }
         setAssetPickerOpen(false);
     };
@@ -349,7 +352,7 @@ export default function VideoPage() {
                 }
                 if (state.status === "failed") throw new Error(state.error);
                 if (attempt === 119) throw new Error("视频生成超时，请稍后重试");
-                await delay(log.task.provider === "seedance" ? 5000 : 2500);
+                await delay(videoPollDelayMs(log.task, attempt));
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
@@ -384,13 +387,13 @@ export default function VideoPage() {
 
     return (
         <div className="flex h-full flex-col overflow-hidden bg-stone-50 text-stone-900 dark:bg-stone-950 dark:text-stone-100">
-            <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-3 lg:grid-cols-[300px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)]">
-                <aside className="thin-scrollbar hidden min-h-0 overflow-y-auto rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800 lg:block">
+            <main className="workbench-main min-h-0 flex-1 gap-3 p-3">
+                <aside className="workbench-history thin-scrollbar min-h-0 overflow-y-auto rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800">
                     <LogPanel logs={logs} selectedLogIds={selectedLogIds} activeLogId={previewLog?.id} onSelectedLogIdsChange={setSelectedLogIds} onCreateSession={createSession} onDeleteSelected={() => setDeleteConfirmOpen(true)} onPreviewLog={previewGenerationLog} />
                 </aside>
 
-                <section className="grid gap-3 lg:min-h-0 lg:overflow-hidden xl:grid-cols-[420px_minmax(0,1fr)]">
-                    <div className="thin-scrollbar flex flex-col rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800 lg:min-h-0 lg:overflow-y-auto">
+                <section className="workbench-stage min-h-0 gap-3 overflow-y-auto">
+                    <div className="workbench-panel thin-scrollbar flex flex-col rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800">
                         <div className="flex items-start justify-between gap-3">
                             <h1 className="text-2xl font-semibold text-stone-950 dark:text-stone-100">视频创作台</h1>
                             <div className="flex shrink-0 gap-2 lg:hidden">
@@ -423,10 +426,10 @@ export default function VideoPage() {
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                     <span className="text-base font-semibold">参考图</span>
                                     <div className="flex gap-2">
-                                        <Button size="small" icon={<ClipboardPaste className="size-3.5" />} onClick={() => void addReferencesFromClipboard()}>
+                                        <Button size="small" icon={<ClipboardPaste className="size-3.5" />} disabled={!referenceLimits.images} onClick={() => void addReferencesFromClipboard()}>
                                             剪切板
                                         </Button>
-                                        <Button size="small" icon={<Upload className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>
+                                        <Button size="small" icon={<Upload className="size-3.5" />} disabled={!referenceLimits.images} onClick={() => fileInputRef.current?.click()}>
                                             上传
                                         </Button>
                                     </div>
@@ -442,14 +445,14 @@ export default function VideoPage() {
                                             </button>
                                         </div>
                                     ))}
-                                    {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考图，最多 9 张</div> : null}
+                                    {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">{referenceLimits.images ? `暂无参考图，最多 ${referenceLimits.images} 张` : "当前模型不支持参考图"}</div> : null}
                                 </div>
                             </div>
 
                             <div className="min-w-0">
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                     <span className="text-base font-semibold">参考视频</span>
-                                    <Button size="small" icon={<Upload className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>
+                                    <Button size="small" icon={<Upload className="size-3.5" />} disabled={!referenceLimits.videos} onClick={() => fileInputRef.current?.click()}>
                                         上传
                                     </Button>
                                 </div>
@@ -464,14 +467,14 @@ export default function VideoPage() {
                                             </button>
                                         </div>
                                     ))}
-                                    {!videoReferences.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考视频，最多 3 个</div> : null}
+                                    {!videoReferences.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">{referenceLimits.videos ? `暂无参考视频，最多 ${referenceLimits.videos} 个` : "当前模型不支持参考视频"}</div> : null}
                                 </div>
                             </div>
 
                             <div className="min-w-0">
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                     <span className="text-base font-semibold">参考音频</span>
-                                    <Button size="small" icon={<Upload className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>
+                                    <Button size="small" icon={<Upload className="size-3.5" />} disabled={!referenceLimits.audios} onClick={() => fileInputRef.current?.click()}>
                                         上传
                                     </Button>
                                 </div>
@@ -490,13 +493,17 @@ export default function VideoPage() {
                                             </button>
                                         </div>
                                     ))}
-                                    {!audioReferences.length ? <div className="flex min-w-full items-center justify-center text-center text-sm text-stone-500">暂无参考音频，最多 3 个，mp3/wav，单个 15MB 内</div> : null}
+                                    {!audioReferences.length ? (
+                                        <div className="flex min-w-full items-center justify-center text-center text-sm text-stone-500">
+                                            {referenceLimits.audios ? `暂无参考音频，最多 ${referenceLimits.audios} 个，mp3/wav，单个 ${Math.round(referenceLimits.audioMaxBytes / 1024 / 1024)}MB 内` : "当前模型不支持参考音频"}
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
 
                             <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm dark:border-stone-800 dark:bg-stone-900 sm:hidden">
                                 <span className="truncate text-stone-500 dark:text-stone-400">
-                                    {modelOptionLabel(effectiveConfig, model)} · {normalizeResolution(effectiveConfig.vquality)}p · {videoSizeLabel(effectiveConfig.size)} · {normalizeVideoSeconds(effectiveConfig.videoSeconds)}s
+                                    {modelOptionLabel(effectiveConfig, model)} · {normalizeResolution(resolvedVideoConfig.vquality)}p · {videoSizeLabel(resolvedVideoConfig.size)} · {normalizeVideoSeconds(resolvedVideoConfig.videoSeconds)}s
                                 </span>
                                 <Button size="small" type="text" icon={<SlidersHorizontal className="size-4" />} onClick={() => setSettingsOpen(true)}>
                                     调整
@@ -504,7 +511,7 @@ export default function VideoPage() {
                             </div>
 
                             <div className="hidden gap-4 sm:grid sm:grid-cols-2">
-                                <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                                <GenerationSettings config={resolvedVideoConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                             </div>
                         </div>
 
@@ -515,7 +522,7 @@ export default function VideoPage() {
                         </div>
                     </div>
 
-                    <div className="thin-scrollbar rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800 lg:min-h-0 lg:overflow-y-auto lg:p-5">
+                    <div className="workbench-panel thin-scrollbar rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800 lg:p-5">
                         <div className="mb-4 flex items-center justify-between gap-3">
                             <h2 className="text-xl font-semibold">生成结果</h2>
                             {running ? <Tag className="m-0 px-2 py-1">等待 {formatDuration(elapsedMs)}</Tag> : null}
@@ -547,9 +554,9 @@ export default function VideoPage() {
             <Drawer title="生成记录" placement="bottom" size="large" open={logsOpen} onClose={() => setLogsOpen(false)}>
                 <LogPanel logs={logs} selectedLogIds={selectedLogIds} activeLogId={previewLog?.id} onSelectedLogIdsChange={setSelectedLogIds} onCreateSession={createSession} onDeleteSelected={() => setDeleteConfirmOpen(true)} onPreviewLog={previewGenerationLog} />
             </Drawer>
-            <Drawer title="参数" placement="bottom" height="82vh" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+            <Drawer title="参数" placement="bottom" size="82vh" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
                 <div className="grid grid-cols-2 gap-3 pb-4">
-                    <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                    <GenerationSettings config={resolvedVideoConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                 </div>
             </Drawer>
             <PromptSelectDialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen} onSelect={setPrompt} />
@@ -858,13 +865,16 @@ function buildLog({ prompt, model, config, references, videoReferences, audioRef
 
 function buildVideoConfig(config: AiConfig, model: string): AiConfig {
     const seedance = isSeedanceVideoConfig({ ...config, model });
+    const modelName = modelOptionName(model);
+    const orangeMoonModel = getOrangeMoonVideoModel(modelName);
+    const normalizedRatio = normalizeSeedanceRatio(config.size);
     return {
         ...config,
         model,
         videoModel: model,
-        size: seedance ? normalizeSeedanceRatio(config.size) : normalizeVideoSize(config.size),
-        videoSeconds: normalizeVideoSeconds(config.videoSeconds),
-        vquality: normalizeResolution(config.vquality),
+        size: seedance ? (orangeMoonModel && !orangeMoonModel.aspectRatios.includes(normalizedRatio) ? orangeMoonModel.aspectRatios[0] : normalizedRatio) : normalizeVideoSize(config.size),
+        videoSeconds: seedance ? String(normalizeSeedanceDurationForModel(modelName, config.videoSeconds)) : normalizeVideoSeconds(config.videoSeconds),
+        vquality: seedance ? orangeMoonModel?.resolution || normalizeSeedanceResolution(config.vquality, modelName) : normalizeResolution(config.vquality),
         videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
         videoWatermark: String(boolConfig(config.videoWatermark, false)),
     };

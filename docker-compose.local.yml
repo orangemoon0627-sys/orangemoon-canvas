@@ -1,4 +1,103 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: orangemoon
+      POSTGRES_USER: orangemoon
+      POSTGRES_PASSWORD: local-orangemoon
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - orangemoon-postgres-local:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orangemoon -d orangemoon"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  platform-migrate:
+    build:
+      context: ./platform-api
+      dockerfile: Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://orangemoon:local-orangemoon@postgres:5432/orangemoon?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  platform-api:
+    build:
+      context: ./platform-api
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://orangemoon:local-orangemoon@postgres:5432/orangemoon?schema=public
+      PLATFORM_PORT: 17400
+      PLATFORM_BODY_LIMIT_MB: 128
+      PLATFORM_MAX_CONCURRENT_GENERATIONS: 4
+      PLATFORM_ALLOWED_ORIGINS: http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:4311,http://localhost:4311
+      PLATFORM_COOKIE_SECURE: "false"
+      PLATFORM_ALLOW_FIRST_USER_ADMIN: "true"
+      PLATFORM_IP_HASH_SALT: ${PLATFORM_IP_HASH_SALT:-local-development-only}
+      MANUAL_ALIPAY_ENABLED: ${MANUAL_ALIPAY_ENABLED:-true}
+      MANUAL_ALIPAY_PAYEE: ${MANUAL_ALIPAY_PAYEE:-橙月画布}
+      MANUAL_ALIPAY_QR_URL: ${MANUAL_ALIPAY_QR_URL:-}
+      MANUAL_ALIPAY_INSTRUCTIONS: ${MANUAL_ALIPAY_INSTRUCTIONS:-转账时填写充值订单号，到账后由管理员确认。}
+      MANUAL_WECHAT_ENABLED: ${MANUAL_WECHAT_ENABLED:-true}
+      MANUAL_WECHAT_PAYEE: ${MANUAL_WECHAT_PAYEE:-橙月画布}
+      MANUAL_WECHAT_QR_URL: ${MANUAL_WECHAT_QR_URL:-}
+      MANUAL_WECHAT_INSTRUCTIONS: ${MANUAL_WECHAT_INSTRUCTIONS:-转账时填写充值订单号，到账后由管理员确认。}
+      METAJING_API_KEY: ${METAJING_API_KEY:-}
+      MINIMAX_AUDIO_API_KEY: ${MINIMAX_AUDIO_API_KEY:-}
+      MINIMAX_DEFAULT_VOICE_ID: ${MINIMAX_DEFAULT_VOICE_ID:-}
+      PLATFORM_METAJING_USD_TO_CNY: ${PLATFORM_METAJING_USD_TO_CNY:-1.0}
+      PLATFORM_MINIMAX_USD_TO_CNY: ${PLATFORM_MINIMAX_USD_TO_CNY:-7.3}
+      PLATFORM_PRICE_MARKUP: ${PLATFORM_PRICE_MARKUP:-1.65}
+      PLATFORM_AGENT_INPUT_CREDITS_PER_MILLION: ${PLATFORM_AGENT_INPUT_CREDITS_PER_MILLION:-18.563}
+      PLATFORM_AGENT_CACHED_INPUT_CREDITS_PER_MILLION: ${PLATFORM_AGENT_CACHED_INPUT_CREDITS_PER_MILLION:-1.857}
+      PLATFORM_AGENT_OUTPUT_CREDITS_PER_MILLION: ${PLATFORM_AGENT_OUTPUT_CREDITS_PER_MILLION:-111.375}
+      PLATFORM_AGENT_RESERVE_CREDITS: ${PLATFORM_AGENT_RESERVE_CREDITS:-2}
+      CANVAS_AGENT_INTERNAL_SECRET: ${CANVAS_AGENT_INTERNAL_SECRET:-orangemoon-local-agent-billing-secret}
+    ports:
+      - "127.0.0.1:17400:17400"
+    depends_on:
+      platform-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:17400/platform-api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  canvas-agent:
+    build:
+      context: ./canvas-agent
+      dockerfile: Dockerfile
+    environment:
+      CANVAS_AGENT_MODE: cloud
+      CANVAS_AGENT_HOST: 0.0.0.0
+      PORT: 17371
+      PLATFORM_API_INTERNAL_URL: http://platform-api:17400/platform-api
+      CANVAS_AGENT_INTERNAL_SECRET: ${CANVAS_AGENT_INTERNAL_SECRET:-orangemoon-local-agent-billing-secret}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-terra}
+      OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-high}
+      OPENAI_MAX_OUTPUT_TOKENS: ${OPENAI_MAX_OUTPUT_TOKENS:-6000}
+      CANVAS_AGENT_MAX_CONCURRENT: ${CANVAS_AGENT_MAX_CONCURRENT:-2}
+      CANVAS_AGENT_BODY_LIMIT: ${CANVAS_AGENT_BODY_LIMIT:-30mb}
+    ports:
+      - "127.0.0.1:17371:17371"
+    depends_on:
+      platform-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:17371/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   app:
     image: infinite-canvas:local
     build:
@@ -6,4 +105,16 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    depends_on:
+      platform-api:
+        condition: service_healthy
+      canvas-agent:
+        condition: service_healthy
     restart: unless-stopped
+    environment:
+      NGINX_CLIENT_MAX_BODY_SIZE: 128m
+      CANVAS_AGENT_URL: /canvas-agent
+      CANVAS_AGENT_MODEL: ${OPENAI_MODEL:-gpt-5.6-terra}
+
+volumes:
+  orangemoon-postgres-local:

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowUp, LoaderCircle, Square } from "lucide-react";
+import { ArrowUp, FileText, Image as ImageIcon, Music2, Square, Video } from "lucide-react";
 import { Button } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -37,17 +37,18 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
-    const [prompt, setPrompt] = useState(isEditingExistingContent ? "" : node.metadata?.prompt || "");
+    const storedPrompt = node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
+    const [prompt, setPrompt] = useState(storedPrompt);
 
-    // 仅在切换到其它节点时重置输入框;同一节点生成完成后(内容写回自身导致 isEditingExistingContent 变化)保留用户输入
+    // 仅在切换到其它节点时重置输入框;同一节点生成完成后保留用户输入。
     useEffect(() => {
-        setPrompt(isEditingExistingContent ? "" : node.metadata?.prompt || "");
+        setPrompt(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [node.id]);
 
     const updatePrompt = (value: string) => {
         setPrompt(value);
-        if (!isEditingExistingContent) onPromptChange(node.id, value);
+        onPromptChange(node.id, value);
     };
 
     const submit = () => {
@@ -58,72 +59,130 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
     return (
         <div
-            className="rounded-2xl border p-3 shadow-2xl backdrop-blur"
+            className="rounded-lg border p-2 shadow-[0_12px_30px_rgba(0,0,0,.16)] backdrop-blur"
             style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
         >
+            {mentionReferences.length ? <ReferenceStrip references={mentionReferences} theme={theme} /> : null}
             <CanvasPromptChipInput
                 value={prompt}
                 references={mentionReferences}
                 onChange={updatePrompt}
                 onSubmit={submit}
-                className="thin-scrollbar h-40 w-full cursor-text resize-none rounded-xl px-3 py-2 text-sm leading-5 outline-none"
-                style={{ background: "transparent", color: theme.node.text }}
+                className="thin-scrollbar h-24 w-full cursor-text resize-none rounded-md border px-2.5 py-2 text-sm leading-5 outline-none"
+                style={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text }}
                 placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
             />
 
-            <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                    <CanvasPromptLibrary onSelect={updatePrompt} />
-                    {mode === "image" ? (
-                        <>
-                            <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="image" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
-                            <CanvasImageSettingsPopover
-                                config={config}
-                                placement="topLeft"
-                                buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3"
-                                onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })}
-                                onMissingConfig={() => openConfigDialog(true)}
-                                onOpenChange={onImageSettingsOpenChange}
-                            />
-                        </>
-                    ) : mode === "video" ? (
-                        <>
-                            <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="video" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
-                            <CanvasVideoSettingsPopover config={config} buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
-                        </>
-                    ) : mode === "audio" ? (
-                        <>
-                            <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="audio" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
-                            <CanvasAudioSettingsPopover config={config} buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3" onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))} />
-                        </>
-                    ) : (
-                        <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="text" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
-                    )}
-                </div>
+            <div className={`mt-2 grid min-w-0 items-center gap-1.5 ${mode === "text" ? "grid-cols-[32px_minmax(0,1fr)_32px]" : "grid-cols-[32px_minmax(0,1fr)_minmax(120px,.8fr)_32px]"}`}>
+                <CanvasPromptLibrary buttonClassName="!h-8 !w-8 !min-w-8 shrink-0 !rounded-md !bg-transparent !p-0" onSelect={updatePrompt} />
+                {mode === "image" ? (
+                    <>
+                        <ModelPicker
+                            config={config}
+                            value={config.model}
+                            onChange={(model) => onConfigChange(node.id, { model })}
+                            capability="image"
+                            onMissingConfig={() => openConfigDialog(true)}
+                            className="!h-8 !w-full !min-w-0 !rounded-md !px-2 !text-xs !shadow-none"
+                            fullWidth
+                        />
+                        <CanvasImageSettingsPopover
+                            config={config}
+                            placement="topLeft"
+                            buttonClassName="!h-8 !w-full !max-w-none !justify-start !rounded-md !px-2 !text-xs"
+                            onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })}
+                            onMissingConfig={() => openConfigDialog(true)}
+                            onOpenChange={onImageSettingsOpenChange}
+                        />
+                    </>
+                ) : mode === "video" ? (
+                    <>
+                        <ModelPicker
+                            config={config}
+                            value={config.model}
+                            onChange={(model) => onConfigChange(node.id, { model })}
+                            capability="video"
+                            onMissingConfig={() => openConfigDialog(true)}
+                            className="!h-8 !w-full !min-w-0 !rounded-md !px-2 !text-xs !shadow-none"
+                            fullWidth
+                        />
+                        <CanvasVideoSettingsPopover config={config} buttonClassName="!h-8 !w-full !max-w-none !justify-start !rounded-md !px-2 !text-xs" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
+                    </>
+                ) : mode === "audio" ? (
+                    <>
+                        <ModelPicker
+                            config={config}
+                            value={config.model}
+                            onChange={(model) => onConfigChange(node.id, { model })}
+                            capability="audio"
+                            onMissingConfig={() => openConfigDialog(true)}
+                            className="!h-8 !w-full !min-w-0 !rounded-md !px-2 !text-xs !shadow-none"
+                            fullWidth
+                        />
+                        <CanvasAudioSettingsPopover config={config} buttonClassName="!h-8 !w-full !max-w-none !justify-start !rounded-md !px-2 !text-xs" onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))} />
+                    </>
+                ) : (
+                    <ModelPicker
+                        config={config}
+                        value={config.model}
+                        onChange={(model) => onConfigChange(node.id, { model })}
+                        capability="text"
+                        onMissingConfig={() => openConfigDialog(true)}
+                        className="!h-8 !w-full !min-w-0 !rounded-md !px-2 !text-xs !shadow-none"
+                        fullWidth
+                    />
+                )}
                 <Button
                     type="primary"
-                    className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
+                    className="!grid !size-8 !min-w-8 shrink-0 !place-items-center !rounded-md !p-0"
                     danger={isRunning}
                     disabled={!isRunning && !prompt.trim()}
                     onClick={() => (isRunning ? onStop(node.id) : submit())}
                     aria-label={isRunning ? "停止生成" : "生成"}
                 >
-                    <span className="flex items-center gap-1.5">
-                        {isRunning ? (
-                            <>
-                                <LoaderCircle className="size-4 animate-spin" />
-                                <Square className="size-3.5 fill-current" />
-                                <span className="text-xs font-medium">停止</span>
-                            </>
-                        ) : (
-                            <ArrowUp className="size-4" />
-                        )}
-                    </span>
+                    {isRunning ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-4" />}
                 </Button>
             </div>
+        </div>
+    );
+}
+
+function ReferenceStrip({ references, theme }: { references: CanvasResourceReference[]; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const visible = references.slice(0, 7);
+    const remaining = references.length - visible.length;
+    return (
+        <div className="mb-2 flex min-w-0 items-center gap-1.5 overflow-hidden">
+            <span className="mr-0.5 shrink-0 text-[10px]" style={{ color: theme.node.muted }}>
+                参考
+            </span>
+            {visible.map((reference) => (
+                <div
+                    key={reference.id}
+                    className="grid size-7 shrink-0 place-items-center overflow-hidden rounded-md border"
+                    style={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.muted }}
+                    title={`${reference.label} · ${reference.title}`}
+                >
+                    {reference.kind === "image" && reference.previewUrl ? (
+                        <img src={reference.previewUrl} alt="" className="h-full w-full object-cover" />
+                    ) : reference.kind === "video" ? (
+                        <Video className="size-3.5" />
+                    ) : reference.kind === "audio" ? (
+                        <Music2 className="size-3.5" />
+                    ) : reference.kind === "image" ? (
+                        <ImageIcon className="size-3.5" />
+                    ) : (
+                        <FileText className="size-3.5" />
+                    )}
+                </div>
+            ))}
+            {remaining > 0 ? (
+                <span className="grid size-7 shrink-0 place-items-center rounded-md border text-[10px]" style={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.muted }}>
+                    +{remaining}
+                </span>
+            ) : null}
         </div>
     );
 }
@@ -136,11 +195,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
     const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
     const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "video" ? defaultConfig.videoModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
     const currentModel = node.metadata?.model;
-    const model = currentModel && modelMatchesCapability(globalConfig, currentModel, mode)
-        ? currentModel
-        : defaultModel && modelMatchesCapability(globalConfig, defaultModel, mode)
-            ? defaultModel
-            : fallbackModel;
+    const model = currentModel && modelMatchesCapability(globalConfig, currentModel, mode) ? currentModel : defaultModel && modelMatchesCapability(globalConfig, defaultModel, mode) ? defaultModel : fallbackModel;
     return {
         ...globalConfig,
         model,

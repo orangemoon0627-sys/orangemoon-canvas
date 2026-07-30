@@ -5,7 +5,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
-import { AGENT_PROMPT, VERSION } from "./config.js";
+import { AGENT_PROMPT, VIBE_AGENT_PROMPT, VERSION, type AgentCreativeMode } from "./config.js";
 import type { AgentAttachment, AgentEmit } from "./types.js";
 
 type Json = Record<string, unknown>;
@@ -21,8 +21,9 @@ let codexThreadId = "";
 const canvasAgentMcp = canvasAgentMcpCommand();
 const require = createRequire(import.meta.url);
 
-export function withAgentPrompt(prompt: string) {
-    return prompt.trim() ? `${AGENT_PROMPT}\n\n用户请求：${prompt}` : "";
+export function withAgentPrompt(prompt: string, creativeMode: AgentCreativeMode = "vibe") {
+    const modePrompt = creativeMode === "vibe" ? `\n\n${VIBE_AGENT_PROMPT}` : "";
+    return prompt.trim() ? `${AGENT_PROMPT}${modePrompt}\n\n用户请求：${prompt}` : "";
 }
 
 export async function runCodexTurn(prompt: string, emit: AgentEmit, attachments: AgentAttachment[] = [], options: CodexRunOptions = {}) {
@@ -164,7 +165,7 @@ class CodexAppClient {
             codexThreadId = "";
             emit("agent_log", { text: `Codex app-server exited: ${code ?? 0}` });
         });
-        await client.request("initialize", { clientInfo: { name: "canvas-agent", title: "Infinite Canvas Agent", version: VERSION }, capabilities: { experimentalApi: true, requestAttestation: false } });
+        await client.request("initialize", { clientInfo: { name: "canvas-agent", title: "Orange Moon Canvas Agent", version: VERSION }, capabilities: { experimentalApi: true, requestAttestation: false } });
         client.notify("initialized");
         return client;
     }
@@ -481,6 +482,7 @@ function toolName(name: string) {
     if (name === "canvas_apply_ops") return "画布操作";
     if (name === "canvas_get_state") return "读取画布";
     if (name === "canvas_get_selection") return "读取选区";
+    if (name === "canvas_get_node") return "读取节点";
     if (name === "canvas_export_snapshot") return "导出快照";
     if (name === "canvas_create_attachment_nodes") return "添加附件图片";
     if (name === "canvas_create_text_node") return "创建文本";

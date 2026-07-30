@@ -1,0 +1,313 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum LedgerTransactionType {
+  RECHARGE
+  ADMIN_ADJUSTMENT
+  GENERATION_RESERVE
+  GENERATION_SETTLE
+  GENERATION_RELEASE
+  AGENT_RESERVE
+  AGENT_SETTLE
+  AGENT_RELEASE
+}
+
+enum RechargeStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentProvider {
+  ALIPAY_MANUAL
+  WECHAT_MANUAL
+}
+
+enum GenerationStatus {
+  RESERVED
+  SUBMITTED
+  SUCCEEDED
+  FAILED
+  RELEASED
+}
+
+enum AgentTurnStatus {
+  RESERVED
+  SUCCEEDED
+  FAILED
+}
+
+enum AssetKind {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  email              String              @unique
+  passwordHash       String
+  displayName        String
+  role               UserRole            @default(USER)
+  status             UserStatus          @default(ACTIVE)
+  sessions           Session[]
+  wallet             Wallet?
+  rechargeOrders     RechargeOrder[]     @relation("RechargeOwner")
+  reviewedRecharges  RechargeOrder[]     @relation("RechargeReviewer")
+  generationJobs     GenerationJob[]
+  assets             Asset[]
+  agentThreads       AgentThread[]
+  agentTurns         AgentTurn[]
+  ledgerTransactions LedgerTransaction[]
+  auditLogs          AuditLog[]          @relation("AuditActor")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([role, status])
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastSeenAt DateTime  @default(now())
+  ipHash     String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt, revokedAt])
+}
+
+model Wallet {
+  id                    String        @id @default(cuid())
+  userId                String        @unique
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  availableMilliCredits BigInt        @default(0)
+  frozenMilliCredits    BigInt        @default(0)
+  ledgerEntries         LedgerEntry[]
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+}
+
+model LedgerTransaction {
+  id             String                @id @default(cuid())
+  type           LedgerTransactionType
+  idempotencyKey String                @unique
+  userId         String?
+  user           User?                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  description    String
+  metadata       Json?
+  entries        LedgerEntry[]
+  createdAt      DateTime              @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+model LedgerEntry {
+  id            String            @id @default(cuid())
+  transactionId String
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  walletId      String?
+  wallet        Wallet?           @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  account       String
+  amountMilli   BigInt
+  createdAt     DateTime          @default(now())
+
+  @@index([transactionId])
+  @@index([walletId, createdAt])
+  @@index([account, createdAt])
+}
+
+model RechargeOrder {
+  id                String          @id @default(cuid())
+  publicId          String          @unique
+  userId            String
+  user              User            @relation("RechargeOwner", fields: [userId], references: [id], onDelete: Restrict)
+  provider          PaymentProvider
+  status            RechargeStatus  @default(PENDING)
+  creditsMilli      BigInt
+  amountFen         Int
+  payerNote         String?
+  externalReference String?
+  reviewNote        String?
+  reviewedById      String?
+  reviewedBy        User?           @relation("RechargeReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  reviewedAt        DateTime?
+  expiresAt         DateTime
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([provider, externalReference])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model PaymentSetting {
+  provider     PaymentProvider @id
+  enabled      Boolean         @default(false)
+  payee        String
+  instructions String
+  qrMimeType   String?
+  qrBytes      Bytes?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model PaymentEvent {
+  id              String          @id @default(cuid())
+  provider        PaymentProvider
+  providerEventId String
+  verified        Boolean         @default(false)
+  payload         Json
+  processedAt     DateTime?
+  createdAt       DateTime        @default(now())
+
+  @@unique([provider, providerEventId])
+  @@index([processedAt, createdAt])
+}
+
+model GenerationJob {
+  id                   String           @id @default(cuid())
+  publicId             String           @unique
+  userId               String
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  capability           String
+  model                String
+  status               GenerationStatus @default(RESERVED)
+  idempotencyKey       String
+  reservedMilliCredits BigInt
+  chargedMilliCredits  BigInt           @default(0)
+  providerTaskId       String?          @unique
+  providerState        String?
+  error                String?
+  requestSummary       Json?
+  priceSnapshot        Json
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  settledAt            DateTime?
+  assets               Asset[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Asset {
+  id              String         @id @default(cuid())
+  publicId        String         @unique
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind            AssetKind
+  title           String
+  coverUrl        String?
+  tags            String[]       @default([])
+  source          String?
+  note            String?
+  data            Json
+  metadata        Json?
+  generationJobId String?
+  generationJob   GenerationJob? @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
+  ordinal         Int            @default(0)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([generationJobId, ordinal])
+  @@index([userId, createdAt])
+  @@index([userId, kind, createdAt])
+  @@index([generationJobId])
+}
+
+model AgentThread {
+  id           String   @id @default(cuid())
+  publicId     String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId    String
+  preview      String   @default("")
+  name         String?
+  messages     Json     @default("[]")
+  history      Json     @default("[]")
+  lastOpenedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId, projectId, updatedAt])
+  @@index([userId, projectId, lastOpenedAt])
+}
+
+model AgentTurn {
+  id                   String          @id @default(cuid())
+  turnId               String          @unique
+  userId               String
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  projectId            String
+  threadId             String
+  model                 String
+  status                AgentTurnStatus @default(RESERVED)
+  reservedMilliCredits BigInt
+  chargedMilliCredits  BigInt          @default(0)
+  inputTokens           BigInt          @default(0)
+  cachedInputTokens     BigInt          @default(0)
+  outputTokens          BigInt          @default(0)
+  totalTokens           BigInt          @default(0)
+  priceSnapshot         Json
+  error                 String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  settledAt             DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([userId, projectId, createdAt])
+}
+
+model PriceVersion {
+  id             String   @id @default(cuid())
+  version        String   @unique
+  active         Boolean  @default(false)
+  usdToCnyMicros BigInt
+  markupBps      Int
+  rules          Json
+  createdAt      DateTime @default(now())
+
+  @@index([active, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  action     String
+  targetType String
+  targetId   String?
+  details    Json?
+  ipHash     String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId, createdAt])
+}

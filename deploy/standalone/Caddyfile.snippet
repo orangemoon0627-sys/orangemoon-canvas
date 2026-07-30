@@ -1,0 +1,29 @@
+canvas.154-12-85-189.sslip.io {
+	encode zstd gzip
+	request_body {
+		max_size 70MB
+	}
+	reverse_proxy 127.0.0.1:4320 {
+		health_uri /
+		health_interval 30s
+		health_timeout 4s
+	}
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	log {
+		output file /var/log/caddy/orangemoon-canvas-access.log {
+			roll_size 20MB
+			roll_keep 5
+		}
+		format console
+	}
+}
+
+# 正式域名解析到服务器后，可将站点地址替换为 canvas.orangemoon.tech。

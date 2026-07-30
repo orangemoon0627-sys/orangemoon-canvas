@@ -1,8 +1,11 @@
 import { createBrowserRouter, Outlet } from "react-router-dom";
 
 import { AnalyticsTracker } from "@/components/layout/analytics-tracker";
+import { PlatformAuthGate } from "@/components/auth/platform-auth-gate";
 import UserLayout from "@/layouts/user-layout";
 import AssetsPage from "@/pages/assets";
+import AccountPage from "@/pages/account";
+import AdminPage from "@/pages/admin";
 import CanvasPage from "@/pages/canvas";
 import CanvasProjectPage from "@/pages/canvas/project";
 import ConfigPage from "@/pages/config";
@@ -15,10 +18,12 @@ import VideoPage from "@/pages/video";
 export const router = createBrowserRouter([
     {
         element: (
-            <UserLayout>
-                <AnalyticsTracker />
-                <Outlet />
-            </UserLayout>
+            <PlatformAuthGate>
+                <UserLayout>
+                    <AnalyticsTracker />
+                    <Outlet />
+                </UserLayout>
+            </PlatformAuthGate>
         ),
         children: [
             { path: "/", element: <HomePage /> },
@@ -29,6 +34,8 @@ export const router = createBrowserRouter([
             { path: "/canvas", element: <CanvasPage /> },
             { path: "/canvas/:id", element: <CanvasProjectPage /> },
             { path: "/config", element: <ConfigPage /> },
+            { path: "/account", element: <AccountPage /> },
+            { path: "/admin", element: <AdminPage /> },
         ],
     },
     { path: "*", element: <NotFound /> },

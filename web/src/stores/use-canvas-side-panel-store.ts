@@ -16,8 +16,10 @@ function initialWidth() {
 }
 
 function initialOpen() {
-    if (typeof window === "undefined") return true;
-    return localStorage.getItem(OPEN_KEY) !== "0";
+    if (typeof window === "undefined") return false;
+    const stored = localStorage.getItem(OPEN_KEY);
+    if (stored != null) return stored !== "0";
+    return false;
 }
 
 type CanvasSidePanelStore = {

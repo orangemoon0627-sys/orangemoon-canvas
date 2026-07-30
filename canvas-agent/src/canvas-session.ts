@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { ServerResponse } from "node:http";
 
 import { type ToolName } from "./schemas.js";
-import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
+import { compactCanvasState, editableNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
 import type { AgentAttachment, CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
 
 type PendingRequest = { clientId: string; resolve: (value: unknown) => void; reject: (error: Error) => void };
@@ -22,6 +22,8 @@ const SITE_TOOLS = new Set<ToolName>([
     "generation_get_status",
 ]);
 
+const PROJECT_LOCKED_SITE_TOOLS = new Set<ToolName>(["site_navigate", "canvas_list_projects", "workbench_image_generate", "workbench_video_generate"]);
+
 export class CanvasSession {
     private clients = new Map<string, ServerResponse>();
     private clientFocusOrder = new Map<string, number>();
@@ -30,6 +32,7 @@ export class CanvasSession {
     private turnAttachments = new Map<string, TurnAttachment>();
     private activeClientId = "";
     private boundClientId = "";
+    private boundProjectId = "";
     private focusSequence = 0;
     private codexState: CodexState = { busy: false, threadId: "", turnId: "" };
 
@@ -42,7 +45,7 @@ export class CanvasSession {
     }
 
     health() {
-        return { ok: true, hasCanvas: Boolean(this.canvasState), clients: this.clients.size, codexBusy: this.codexState.busy };
+        return { ok: true, hasCanvas: Boolean(this.canvasState), clients: this.clients.size, codexBusy: this.codexState.busy, boundProjectId: this.boundProjectId || undefined };
     }
 
     get codexBusy() {
@@ -74,7 +77,10 @@ export class CanvasSession {
             this.clients.delete(clientId);
             this.clientFocusOrder.delete(clientId);
             this.canvasStates.delete(clientId);
-            if (this.boundClientId === clientId) this.boundClientId = "";
+            if (this.boundClientId === clientId) {
+                this.boundClientId = "";
+                this.boundProjectId = "";
+            }
             this.pending.forEach((item, requestId) => {
                 if (item.clientId !== clientId) return;
                 this.pending.delete(requestId);
@@ -96,13 +102,22 @@ export class CanvasSession {
         this.clientFocusOrder.set(clientId, ++this.focusSequence);
     }
 
-    bindClient(clientId: string) {
+    bindClient(clientId: string, projectId = "") {
         if (!this.clients.has(clientId)) throw new Error("当前网页未连接");
+        const expectedProjectId = projectId.trim();
+        if (expectedProjectId && expectedProjectId !== "default") {
+            const currentProjectId = String(this.canvasStates.get(clientId)?.projectId || "");
+            if (currentProjectId !== expectedProjectId) throw new Error(`当前标签页不是本轮指定画布（期望 ${expectedProjectId}，实际 ${currentProjectId || "未加载"}）`);
+        }
         this.boundClientId = clientId;
+        this.boundProjectId = expectedProjectId === "default" ? "" : expectedProjectId;
     }
 
     releaseClient(clientId: string) {
-        if (this.boundClientId === clientId) this.boundClientId = "";
+        if (this.boundClientId === clientId) {
+            this.boundClientId = "";
+            this.boundProjectId = "";
+        }
     }
 
     setTurnAttachments(clientId: string, attachments: AgentAttachment[]) {
@@ -156,18 +171,25 @@ export class CanvasSession {
 
     async callTool(name: unknown, rawInput: unknown) {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
+        this.assertBoundCanvas();
         let tool: ToolName = name;
         let input = parseToolInput(tool, rawInput) as Record<string, unknown>;
+        if (this.boundProjectId && PROJECT_LOCKED_SITE_TOOLS.has(tool)) throw new Error(`当前对话已锁定画布 ${this.boundProjectId}，不能跳转页面或改用独立工作台`);
         if (SITE_TOOLS.has(tool)) {
             if (!this.clients.size) throw new Error("当前没有已连接网页");
             return await this.requestCanvasTool(tool, input);
         }
-        const readTool = ["canvas_get_state", "canvas_get_selection", "canvas_export_snapshot"].includes(tool);
+        const readTool = ["canvas_get_state", "canvas_get_selection", "canvas_get_node", "canvas_export_snapshot"].includes(tool);
         if (readTool && (!this.clients.size || !this.canvasState)) throw new Error("当前没有已连接画布");
         if (tool === "canvas_get_state" || tool === "canvas_export_snapshot") return compactCanvasState(this.canvasState);
         if (tool === "canvas_get_selection") {
             const ids = new Set(this.canvasState?.selectedNodeIds || []);
-            return { nodes: (this.canvasState?.nodes || []).filter((node) => ids.has(node.id)).map(compactNode) };
+            return { nodes: (this.canvasState?.nodes || []).filter((node) => ids.has(node.id)).map(editableNode) };
+        }
+        if (tool === "canvas_get_node") {
+            const node = findNode(this.canvasState, String(input.id || ""));
+            if (!node) throw new Error(`找不到节点：${String(input.id || "")}`);
+            return { node: editableNode(node) };
         }
         if (tool === "canvas_create_attachment_nodes") return await this.createAttachmentNodes(input as { attachmentIds: string[]; x?: number; y?: number; gap?: number; direction?: "row" | "column" });
         if (tool === "canvas_create_node") {
@@ -218,8 +240,18 @@ export class CanvasSession {
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_update_node_text") {
-            const data = input as { id: string; text: string; title?: string };
-            input = { ops: [{ type: "update_node", id: data.id, patch: { ...(data.title ? { title: data.title } : {}) }, metadata: { content: data.text, status: "success" } }] };
+            const data = input as { id: string; text?: string; title?: string };
+            if (data.text === undefined && data.title === undefined) throw new Error("更新文本节点时至少需要提供 text 或 title");
+            input = {
+                ops: [
+                    {
+                        type: "update_node",
+                        id: data.id,
+                        ...(data.title === undefined ? {} : { patch: { title: data.title } }),
+                        ...(data.text === undefined ? {} : { metadata: { content: data.text, status: "success" } }),
+                    },
+                ],
+            };
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_move_nodes") {
@@ -291,19 +323,31 @@ export class CanvasSession {
     }
 
     private async requestCanvasTool(name: ToolName, input: Record<string, unknown>) {
+        this.assertBoundCanvas();
         const requestId = crypto.randomUUID();
         const clientId = this.targetClientId;
         const client = this.clients.get(clientId);
         if (!client) throw new Error("当前没有已连接画布");
-        sendEvent(client, "tool_call", { requestId, name, input });
+        sendEvent(client, "tool_call", { requestId, name, input, projectId: this.boundProjectId || String(this.canvasStates.get(clientId)?.projectId || "") || undefined });
         return await new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pending.delete(requestId);
                 reject(new Error("画布操作超时"));
-            }, 30000);
+            }, isCanvasWriteRequest(name) ? 10 * 60 * 1000 : 30000);
             this.pending.set(requestId, { clientId, resolve: (value) => (clearTimeout(timer), resolve(value)), reject: (error) => (clearTimeout(timer), reject(error)) });
         });
     }
+
+    private assertBoundCanvas() {
+        if (!this.boundClientId || !this.boundProjectId) return;
+        if (!this.clients.has(this.boundClientId)) throw new Error("本轮绑定的画布网页已断开");
+        const currentProjectId = String(this.canvasStates.get(this.boundClientId)?.projectId || "");
+        if (currentProjectId !== this.boundProjectId) throw new Error(`本轮只允许操作画布 ${this.boundProjectId}，当前标签页已切换到 ${currentProjectId || "非画布页面"}`);
+    }
+}
+
+function isCanvasWriteRequest(name: ToolName) {
+    return name === "canvas_apply_ops" || name === "canvas_create_attachment_nodes";
 }
 
 function sendEvent(res: ServerResponse, type: string, payload: unknown) {

@@ -4,9 +4,11 @@ import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
+import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
+import { buildApiUrl, isOrangeMoonManagedConfig, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
+import { orangeMoonGet, orangeMoonPost } from "./orange-moon-gateway";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -21,11 +23,20 @@ type SeedanceTask = {
     result_url?: string;
     video_url?: string;
 };
+type MetaJingTask = {
+    task_id?: string;
+    state?: string;
+    status?: string;
+    is_final?: boolean;
+    result_url?: string;
+    error?: string | { message?: string } | null;
+    price_usd?: number;
+};
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
 type RequestOptions = { signal?: AbortSignal };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "metajing" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
@@ -44,14 +55,13 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
-    const delayMs = task.provider === "seedance" ? 5000 : 2500;
     for (let attempt = 0; attempt < 120; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw new Error(state.error);
-        if (attempt === 119) throw new Error(`${task.provider === "seedance" ? "Seedance " : ""}视频生成超时，请稍后重试`);
-        await delay(delayMs, options?.signal);
+        if (attempt === 119) throw new Error(`${task.provider === "seedance" || task.provider === "metajing" ? "Seedance " : ""}视频生成超时，请稍后重试`);
+        await delay(videoPollDelayMs(task, attempt), options?.signal);
     }
     throw new Error("视频生成超时，请稍后重试");
 }
@@ -61,6 +71,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const script = resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
+    if (isOrangeMoonManagedConfig(requestConfig)) return createMetaJingVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
@@ -77,8 +88,14 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
         return result ? { status: "completed", result } : { status: "failed", error: "插件视频任务已失效，请重新生成" };
     }
     const requestConfig = resolveModelRequestConfig(config, task.model);
+    if (task.provider === "metajing") return pollMetaJingVideoTask(task, options);
     assertVideoConfig(requestConfig, requestConfig.model);
     return task.provider === "seedance" ? pollSeedanceTask(requestConfig, task, options) : pollOpenAIVideoTask(requestConfig, task, options);
+}
+
+export function videoPollDelayMs(task: VideoGenerationTask, attempt: number) {
+    if (task.provider !== "metajing") return task.provider === "seedance" ? 5000 : 2500;
+    return Math.min(30_000, 5000 * 2 ** Math.floor(Math.max(0, attempt) / 12));
 }
 
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
@@ -166,6 +183,90 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务查询失败"));
     }
+}
+
+async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const modelName = modelOptionName(selectedModel);
+    const model = getOrangeMoonVideoModel(modelName);
+    if (!model) throw new Error("橙月官方渠道没有登记这个视频模型");
+    assertOrangeMoonReferences(model, references, videoReferences, audioReferences);
+    const ratio = normalizeSeedanceRatio(config.size);
+    const aspectRatio = model.aspectRatios.includes(ratio) ? ratio : model.aspectRatios[0];
+    const duration = normalizeSeedanceDurationForModel(modelName, config.videoSeconds);
+    const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
+    const [images, videos, audios] = await Promise.all([
+        Promise.all(references.map((image) => resolveOrangeMoonImageUrl(image))),
+        Promise.all(videoReferences.map((video) => resolveOrangeMoonVideoUrl(video))),
+        Promise.all(audioReferences.map((audio) => resolveOrangeMoonAudioUrl(audio))),
+    ]);
+    try {
+        const created = await orangeMoonPost<MetaJingTask>(
+            "/metajing/v1/video/generations",
+            { model: modelName, prompt: text, duration, aspect_ratio: aspectRatio, images, videos, audios },
+            { signal: options?.signal },
+        );
+        if (!created.task_id) throw new Error("MetaJing 接口没有返回任务 ID");
+        return { id: created.task_id, provider: "metajing", model: selectedModel };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Seedance 2.0 任务创建失败"));
+    }
+}
+
+async function pollMetaJingVideoTask(task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    try {
+        const state = await orangeMoonGet<MetaJingTask>(`/metajing/v1/video/generations/${encodeURIComponent(task.id)}`, { signal: options?.signal });
+        if (state.result_url) return { status: "completed", result: await videoResultFromUrl(state.result_url, options) };
+        const normalizedState = String(state.state || "").toLowerCase();
+        if (["failed", "failure", "cancelled", "canceled", "expired"].includes(normalizedState) || state.is_final) {
+            return { status: "failed", error: readApiErrorMessage(typeof state.error === "string" ? state.error : state.error?.message) || state.status || "Seedance 2.0 视频生成失败" };
+        }
+        return { status: "pending" };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Seedance 2.0 任务查询失败"));
+    }
+}
+
+function assertOrangeMoonReferences(model: NonNullable<ReturnType<typeof getOrangeMoonVideoModel>>, references: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
+    const limits = model.references;
+    if (references.length > limits.images) throw new Error(`当前模型最多支持 ${limits.images} 张参考图`);
+    if (videos.length > limits.videos) throw new Error(limits.videos ? `当前模型最多支持 ${limits.videos} 段参考视频` : "当前模型不支持参考视频");
+    if (audios.length > limits.audios) throw new Error(limits.audios ? `当前模型最多支持 ${limits.audios} 段参考音频` : "当前模型不支持参考音频");
+    if (audios.length && !references.length && !videos.length) throw new Error("参考音频不能单独使用，请同时添加参考图或参考视频");
+    let videoDurationMs = 0;
+    for (const video of videos) {
+        if (video.bytes && video.bytes > limits.videoMaxBytes) throw new Error(`参考视频 ${video.name} 超过 ${Math.round(limits.videoMaxBytes / 1024 / 1024)}MB`);
+        if (video.durationMs) {
+            if (video.durationMs < 2000 || video.durationMs > 15000) throw new Error(`参考视频 ${video.name} 时长需要在 2-15 秒之间`);
+            videoDurationMs += video.durationMs;
+        }
+    }
+    if (videoDurationMs > 15000) throw new Error("参考视频总时长不能超过 15 秒");
+}
+
+async function resolveOrangeMoonImageUrl(image: ReferenceImage) {
+    const directUrl = image.url || image.dataUrl;
+    if (isPublicMediaUrl(directUrl)) return directUrl;
+    const dataUrl = await imageToDataUrl(image);
+    if (!dataUrl) throw new Error("参考图读取失败，请换一张图片或重新上传");
+    return dataUrl;
+}
+
+async function resolveOrangeMoonVideoUrl(video: ReferenceVideo) {
+    if (isPublicMediaUrl(video.url)) return video.url;
+    let blob: Blob | null = null;
+    if (video.storageKey) blob = await getMediaBlob(video.storageKey);
+    if (!blob && video.url?.startsWith("blob:")) blob = await (await fetch(video.url)).blob();
+    if (!blob) throw new Error("参考视频必须是公网 URL 或本地已保存的视频");
+    return blobToDataUrl(blob);
+}
+
+async function resolveOrangeMoonAudioUrl(audio: ReferenceAudio) {
+    if (isPublicMediaUrl(audio.url)) return audio.url;
+    let blob: Blob | null = null;
+    if (audio.storageKey) blob = await getMediaBlob(audio.storageKey);
+    if (!blob && audio.url?.startsWith("blob:")) blob = await (await fetch(audio.url)).blob();
+    if (!blob) throw new Error("参考音频必须是公网 URL 或本地已保存的音频");
+    return blobToDataUrl(blob);
 }
 
 async function createSeedanceTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
@@ -345,13 +446,13 @@ function readApiErrorMessage(value: unknown): string {
         }
     }
     if (typeof value !== "object") return "";
-    const payload = value as { msg?: unknown; message?: unknown; error?: { message?: unknown } };
-    return readApiErrorMessage(payload.msg) || readApiErrorMessage(payload.message) || readApiErrorMessage(payload.error?.message);
+    const payload = value as { msg?: unknown; message?: unknown; error?: unknown };
+    return readApiErrorMessage(payload.msg) || readApiErrorMessage(payload.message) || readApiErrorMessage(payload.error);
 }
 
 function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
-    if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; message?: string; code?: number | string }>(error)) {
+    if (axios.isAxiosError<{ error?: string | { message?: string }; msg?: string; message?: string; code?: number | string }>(error)) {
         const responseData = error.response?.data;
         return readApiErrorMessage(responseData) || statusMessage(error.response?.status, fallback);
     }

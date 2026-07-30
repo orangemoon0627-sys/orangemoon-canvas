@@ -1,4 +1,4 @@
-# 无限画布文档索引
+# 橙月画布文档索引
 
 ## 项目介绍
 
@@ -17,6 +17,7 @@
 
 - [本地开发](/docs/development/local-development)
 - [画布数据结构](/docs/development/canvas-data-structure)
+- [橙月画布平台底座](/docs/development/orange-moon-platform-foundation)
 
 ## 商务合作
 
@@ -38,7 +39,7 @@
 ## 说明
 
 - 当前画布项目和“我的素材”主要保存在浏览器本地，跨设备可自行配置 WebDAV 同步。
-- AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
+- 橙月官方模型由服务端安全网关托管供应商密钥；自定义渠道的 API Key 仍保存在浏览器本地并由前端直连。
 
 ## 原理说明
 

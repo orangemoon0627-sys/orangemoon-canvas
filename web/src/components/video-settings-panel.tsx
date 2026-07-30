@@ -2,8 +2,9 @@ import { type ReactNode } from "react";
 import { Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { boolConfig, isSeedanceFastModel, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
+import { boolConfig, isSeedanceFastModel, isSeedanceVideoConfig, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
+import { getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
@@ -106,9 +107,13 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
 
 function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
     const model = modelOptionName(config.model || config.videoModel);
-    const resolution = normalizeSeedanceResolution(config.vquality, model);
-    const ratio = normalizeSeedanceRatio(config.size);
-    const duration = normalizeSeedanceDuration(config.videoSeconds);
+    const orangeMoonModel = getOrangeMoonVideoModel(model);
+    const resolution = orangeMoonModel?.resolution || normalizeSeedanceResolution(config.vquality, model);
+    const normalizedRatio = normalizeSeedanceRatio(config.size);
+    const ratio = orangeMoonModel && !orangeMoonModel.aspectRatios.includes(normalizedRatio) ? orangeMoonModel.aspectRatios[0] : normalizedRatio;
+    const duration = normalizeSeedanceDurationForModel(model, config.videoSeconds);
+    const ratioOptions = orangeMoonModel ? seedanceRatioOptions.filter((item) => orangeMoonModel.aspectRatios.includes(item.value)) : seedanceRatioOptions;
+    const durationOptions = orangeMoonModel?.durations || seedanceDurationOptions;
     const generateAudio = boolConfig(config.videoGenerateAudio, true);
     const watermark = boolConfig(config.videoWatermark, false);
 
@@ -119,7 +124,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                 <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
                         {seedanceResolutionOptions.map((item) => {
-                            const disabled = item.value === "1080p" && isSeedanceFastModel(model);
+                            const disabled = orangeMoonModel ? item.value !== orangeMoonModel.resolution : item.value === "1080p" && isSeedanceFastModel(model);
                             return (
                                 <OptionPill key={item.value} selected={resolution === item.value} disabled={disabled} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
                                     {item.label}
@@ -127,11 +132,11 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                             );
                         })}
                     </div>
-                    {isSeedanceFastModel(model) ? <div className="text-[11px] leading-4 opacity-55">fast 模型不支持 1080p，会自动使用 720p。</div> : null}
+                    {!orangeMoonModel && isSeedanceFastModel(model) ? <div className="text-[11px] leading-4 opacity-55">fast 模型不支持 1080p，会自动使用 720p。</div> : null}
                 </SettingGroup>
                 <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {seedanceRatioOptions.map((item) => (
+                        {ratioOptions.map((item) => (
                             <button
                                 key={item.value}
                                 type="button"
@@ -149,20 +154,22 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                 </SettingGroup>
                 <SettingGroup title="时长" color={theme.node.muted}>
                     <div className="grid grid-cols-4 gap-2.5">
-                        {seedanceDurationOptions.map((value) => (
+                        {durationOptions.map((value) => (
                             <OptionPill key={value} selected={duration === value} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
                                 {value === -1 ? "智能" : `${value}s`}
                             </OptionPill>
                         ))}
                     </div>
-                    <NumberInput value={String(duration)} min={-1} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
+                    {orangeMoonModel?.fixedDuration || orangeMoonModel?.allowedDurations?.length || orangeMoonModel?.name === "Seedance 2.0-fast-720p" ? null : <NumberInput value={String(duration)} min={orangeMoonModel?.minDuration ?? -1} max={orangeMoonModel?.maxDuration ?? 15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
                 </SettingGroup>
-                <SettingGroup title="输出" color={theme.node.muted}>
-                    <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>
-                        <SwitchRow label="生成声音" checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
-                        <SwitchRow label="添加水印" checked={watermark} theme={theme} onChange={(checked) => onConfigChange("videoWatermark", String(checked))} />
-                    </div>
-                </SettingGroup>
+                {orangeMoonModel ? null : (
+                    <SettingGroup title="输出" color={theme.node.muted}>
+                        <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>
+                            <SwitchRow label="生成声音" checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                            <SwitchRow label="添加水印" checked={watermark} theme={theme} onChange={(checked) => onConfigChange("videoWatermark", String(checked))} />
+                        </div>
+                    </SettingGroup>
+                )}
             </div>
         </ImageSettingsTheme>
     );

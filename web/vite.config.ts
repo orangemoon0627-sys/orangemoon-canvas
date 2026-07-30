@@ -50,4 +50,12 @@ export default defineConfig({
         __APP_VERSION__: JSON.stringify(localVersion),
         __APP_RELEASES__: JSON.stringify(parseChangelog(localChangelog)),
     },
+    server: {
+        proxy: {
+            "/platform-api": {
+                target: process.env.PLATFORM_API_PROXY_TARGET || "http://127.0.0.1:17400",
+                changeOrigin: false,
+            },
+        },
+    },
 });

@@ -82,16 +82,16 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onInsertA
 
     return (
         <motion.div
-            className="relative z-[60] flex h-full shrink-0"
+            className="pointer-events-none absolute bottom-[72px] left-5 top-20 z-[60] flex"
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: panelOpen ? width + 1 : 0, opacity: panelOpen ? 1 : 0 }}
             transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: PANEL_EASE }}
             style={{ overflow: "clip", pointerEvents: panelClosing ? "none" : undefined }}
         >
             <motion.aside
-                className="relative flex h-full shrink-0 flex-col overflow-hidden border-r"
-                initial={{ x: -48 }}
-                animate={{ x: panelClosing ? -28 : 0 }}
+                className="pointer-events-auto relative flex h-full shrink-0 flex-col overflow-hidden rounded-lg border shadow-2xl backdrop-blur-xl"
+                initial={{ x: -36 }}
+                animate={{ x: panelClosing ? -24 : 0 }}
                 transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: PANEL_EASE }}
                 style={{ width, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
                 data-canvas-no-zoom

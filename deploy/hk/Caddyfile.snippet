@@ -1,0 +1,19 @@
+canvas.38-76-223-32.sslip.io {
+	encode zstd gzip
+	reverse_proxy orangemoon-canvas-web:3000
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# canvas.orangemoon.tech 解析到 38.76.223.32 后，将站点地址替换为正式域名并重新加载 Caddy。

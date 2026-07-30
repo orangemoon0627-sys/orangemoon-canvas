@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { BookOpen, Keyboard, Puzzle, Settings2 } from "lucide-react";
 
+import { AccountCreditMenu } from "@/components/layout/account-credit-menu";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { GitHubLink } from "@/components/layout/github-link";
 import { VersionReleaseModal } from "@/components/layout/version-release-modal";
@@ -30,22 +31,23 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
 
     return (
         <div className="inline-flex shrink-0 items-center gap-1">
+            <AccountCreditMenu className="mr-1 !h-7" style={iconStyle} />
             {onOpenPlugins ? (
                 <button type="button" className={naturalIconClass} style={iconStyle} onClick={onOpenPlugins} aria-label="节点插件" title="节点插件">
                     <Puzzle className="size-4" />
                 </button>
             ) : null}
-            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={naturalIconClass} style={iconStyle} aria-label="文档" title="文档">
+            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={cn(naturalIconClass, "hidden lg:inline-flex")} style={iconStyle} aria-label="文档" title="文档">
                 <BookOpen className="size-4" />
             </a>
             {showConfig ? (
-                <button type="button" className={naturalIconClass} style={iconStyle} onClick={() => openConfigDialog(false)} aria-label="配置" title="配置">
+                <button type="button" className={cn(naturalIconClass, "hidden lg:inline-flex")} style={iconStyle} onClick={() => openConfigDialog(false)} aria-label="配置" title="配置">
                     <Settings2 className="size-4" />
                 </button>
             ) : null}
             <AnimatedThemeToggler theme={theme} onThemeChange={setTheme} className={naturalIconClass} style={iconStyle} aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} />
-            <VersionReleaseModal style={versionStyle} />
-            <GitHubLink className={cn("bg-transparent hover:bg-transparent dark:hover:bg-transparent", gitHubClassName)} style={gitHubStyle} />
+            <span className="hidden lg:inline-flex"><VersionReleaseModal style={versionStyle} /></span>
+            <span className="hidden lg:inline-flex"><GitHubLink className={cn("bg-transparent hover:bg-transparent dark:hover:bg-transparent", gitHubClassName)} style={gitHubStyle} /></span>
             {onOpenShortcuts ? (
                 <button type="button" className={naturalIconClass} style={iconStyle} onClick={onOpenShortcuts} aria-label="快捷键" title="快捷键">
                     <Keyboard className="size-4" />

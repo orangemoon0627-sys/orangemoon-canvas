@@ -1,0 +1,155 @@
+---
+title: 橙月画布平台底座
+description: MetaJing、Seedance 2.0、MiniMax Audio、成本计费与多人平台架构
+---
+
+# 橙月画布平台底座
+
+本文是橙月画布的供应商接入与多人平台基础约定。当前版本已完成内部工作站所需的账户、权限、钱包账本、人工充值、账户资产、官方模型计费网关和容器化数据层。画布项目和媒体文件本体仍是浏览器本地数据，Redis/BullMQ、对象存储、工作区隔离和正式商户支付仍属于上线前工作，不能把当前版本当成已经完成的公网多人 SaaS。
+
+## 当前已落地
+
+- 新增 NestJS 11 + Fastify 平台 API 与 PostgreSQL 17 + Prisma 数据层，Docker 启动时通过一次性迁移容器更新数据库。
+- 支持 Argon2id 邮箱注册/登录、HttpOnly 数据库会话、`USER`/`ADMIN` RBAC、账户停用和请求限流；第一个用户自动成为管理员只允许用于本地开发。
+- 钱包使用整数 `milliCredits` 保存可用/冻结积分；充值、调账、生成冻结、结算和释放全部写双重记账流水，并由 PostgreSQL 延迟约束触发器在事务提交时强制平衡。
+- 支持支付宝/微信个人转账的内测人工充值订单。只有管理员核对真实支付流水后才能确认入账，重复审核不会重复充值；用户可取消待处理订单。
+- 官方模型调用采用“预估并冻结 -> 调用供应商 -> 成功结算或失败释放”，每个任务和账本变更都有幂等键与价格快照。视频在最终轮询状态返回时结算。
+- Web 提供登录/注册 Gate、账户中心和管理后台，可查看余额、模型价格、账户资产、流水、充值单、使用记录并完成充值审核、用户管理和积分调账。
+- 账户资产元数据写入 PostgreSQL 并按用户隔离；浏览器旧资产在首次登录后自动归户，大媒体文件本体暂不写入数据库。
+- 内置“橙月官方”渠道，包含 `gpt-image-2`、18 个 Seedance 2.0 上游模型（21 个可选分辨率规格）、`speech-2.8-hd` 和 `speech-2.8-turbo`。
+- 浏览器只携带 HttpOnly 平台会话，不保存 MetaJing 或 MiniMax 的供应商密钥。平台 API 从环境变量读取密钥；macOS 本地宿主进程也可从 Keychain 读取。
+- Image 2 图生图统一调用 `/v1/images/generations` 的 `image` 字段，不再错误调用 `/v1/images/edits`。
+- Seedance 2.0 使用 MetaJing 的 `/v1/video/generations` 协议，并按每个模型分别限制画幅、时长和参考素材数量。
+- 视频任务使用退避轮询，客户端最长等待约 40 分钟；最终结果以 `is_final`、`state` 和 `result_url` 为准。
+- MiniMax 返回的十六进制音频由网关转换为浏览器可播放的音频二进制。
+
+平台 API 的所有接口使用 `/platform-api` 前缀。主要用户接口：
+
+```text
+POST /platform-api/auth/register
+POST /platform-api/auth/login
+POST /platform-api/auth/logout
+GET  /platform-api/auth/me
+GET  /platform-api/wallet
+GET  /platform-api/wallet/ledger
+GET  /platform-api/assets
+PUT  /platform-api/assets/:publicId
+DELETE /platform-api/assets/:publicId
+POST /platform-api/recharges
+GET  /platform-api/recharges
+GET  /platform-api/providers/catalog
+POST /platform-api/providers/metajing/v1/images/generations
+POST /platform-api/providers/metajing/v1/video/generations
+GET  /platform-api/providers/metajing/v1/video/generations/:taskId
+POST /platform-api/providers/minimax/v1/audio/speech
+GET  /platform-api/providers/jobs
+```
+
+`/platform-api/admin/users/*` 和 `/platform-api/admin/recharges/*` 只允许 `ADMIN` 访问。nginx 与 Vite 开发服务器都把 `/platform-api` 反向代理到平台 API，因此前端不需要知道供应商地址或跨域保存令牌。本地 Canvas Agent 仍保留同构的 `/providers/*` 能力用于可信单机接入，但橙月官方渠道默认走平台 API。
+
+## 密钥配置
+
+密钥优先从环境变量读取，macOS 本地开发可使用 Keychain：
+
+| 供应商 | 环境变量 | Keychain service |
+| --- | --- | --- |
+| MetaJing | `METAJING_API_KEY` | `orangemoon-canvas-metajing-api-key` |
+| MiniMax | `MINIMAX_AUDIO_API_KEY` | `minimax-audio-api-key` |
+| MiniMax 默认音色 | `MINIMAX_DEFAULT_VOICE_ID` | `orangemoon-canvas-minimax-default-voice` |
+
+正式服务器必须改用云厂商 KMS、Secret Manager 或容器密钥挂载，不能把密钥放进镜像、数据库明文字段、前端配置或 Git 仓库。曾在聊天、工单或截图中出现过的供应商密钥，上线前应轮换。
+
+## 模型能力
+
+Image 2：
+
+- 单价 `$0.06/张`，`n=1..4`。
+- 文生图与图生图都走 `POST /v1/images/generations`。
+- 图生图当前最多一张参考图。
+- 支持 15 档标准尺寸，也支持满足约束的自定义尺寸：最长边不超过 3840px、最短边不低于 256px、边长为 16 的倍数、总像素不超过 8,294,400、长短边比不超过 3:1。
+
+Seedance 2.0：
+
+| 模型 | 清晰度 | 时长 | 画幅 | 图/视频/音频上限 |
+| --- | ---: | --- | --- | ---: |
+| `qy-seedance-2.0` | 480P/720P/1080P | 5/10/15s | 16:9、9:16、21:9、4:3、1:1、3:4 | 9/3/3 |
+| `qy-seedance-2.0-fast` | 480P/720P | 5/10/15s | 16:9、9:16、21:9、4:3、1:1、3:4 | 9/3/3 |
+| `Seedance 2.0-fast-720p` | 720P | 5/10/15s | 16:9、9:16、1:1、4:3、3:4 | 9/0/0 |
+| `cc-seedance2.0 480p-fast-nsp` | 480P | 5-15s | 16:9、9:16 | 9/0/3 |
+| `cc-seedance2.0 480p-nsp` | 480P | 5-15s | 16:9、9:16 | 9/0/3 |
+| `mg-seedance2.0 -1080p` | 1080P | 5-15s | 16:9、9:16 | 9/3/3 |
+| `mg-seedance2.0 -480p` | 480P | 5-15s | 16:9、9:16 | 4/3/1 |
+| `mg-seedance2.0 -480p fast` | 480P | 5-15s | 16:9、9:16 | 4/3/1 |
+| `mg-seedance2.0 -480p mini` | 480P | 5-15s | 16:9、9:16 | 4/3/1 |
+| `mg-seedance2.0 -720p fast` | 720P | 5-15s | 16:9、9:16 | 4/3/1 |
+| `mg-seedance2.0 -720p mini` | 720P | 5-15s | 16:9、9:16 | 4/3/1 |
+| `mg-seedance2.0 -720p pro` | 720P | 5-15s | 16:9、9:16 | 4/3/1 |
+| `mg-seedance2.0 -480p-fast-gz-15s` | 480P | 固定 15s | 16:9、9:16 | 9/3/3 |
+| `mg-seedance2.0 -480p-gz-15s` | 480P | 固定 15s | 16:9、9:16 | 9/3/3 |
+| `mg-seedance2.0 -480p-mini-gz-15s` | 480P | 固定 15s | 16:9、9:16 | 9/3/3 |
+| `mg-seedance2.0 -720p-fast-gz-15s` | 720P | 固定 15s | 16:9、9:16 | 9/3/3 |
+| `mg-seedance2.0 -720p-gz-15s` | 720P | 固定 15s | 16:9、9:16 | 9/3/3 |
+| `mg-seedance2.0 -720p-mini-gz-15s` | 720P | 固定 15s | 16:9、9:16 | 9/3/3 |
+
+## 成本与建议售价
+
+换算按供应商拆分：本账号的 MetaJing 美元额度按实际采购口径 `$1 额度 = ¥1`，MiniMax Global 美元账单按 `1 USD = ¥7.3`，平台 `1 积分 = ¥1`。以 Seedance 720P Pro 15 秒 `9.9` 积分为锚点，零售价按供应商人民币成本 `1.65x` 并向上取整到 `0.001` 积分，使实际毛利率稳定在 `39.39%` 左右。价格进入数据库版本和每单快照，不能散落在前端代码中。
+
+当前账户中心直接读取后端目录展示完整价格。常用规格为：Image 2 `0.099 积分/张`、MiniMax Turbo `0.723 积分/千字符`、MiniMax HD `1.205 积分/千字符`、Seedance 独家 720P 为 `0.825 / 1.65 / 2.475` 积分（5/10/15 秒），720P Pro 为 `3.3 / 6.6 / 9.9` 积分。完整成本和所有 Seedance 规格见仓库根目录的 `docs/provider-pricing-audit-2026-07-28.md`。
+
+价格来源：[MetaJing API 文档](https://metajing.cn/zh-CN/api-docs)、MetaJing 公共模型/价格接口、本账号实际额度采购口径、[MiniMax Pay as You Go](https://platform.minimax.io/docs/guides/pricing-paygo)。供应商模型价格和额度采购比例都可能变化，生产服务应人工复核并生成新价格版本，历史订单继续绑定提交时的价格版本。
+
+## 多人生产架构
+
+当前平台 API 已覆盖账户、计费和资产元数据核心，但画布项目及媒体文件本体仍在浏览器，供应商任务也还没有进入独立 worker。十几人共用的生产版按以下边界继续建设：
+
+| 边界 | 方案 | 当前状态 |
+| --- | --- | --- |
+| Web | React + Vite | 已接入账户、钱包、账户资产、官方模型和管理后台；项目与媒体文件本体仍在浏览器 |
+| API | NestJS + Fastify Adapter | 已完成鉴权、计费、充值、账户资产和管理接口；仍需工作区/项目 API |
+| 数据库 | PostgreSQL + Prisma | 已保存用户、会话、订单、价格、任务、账户资产、审计和双重记账；仍需云端项目模型 |
+| 队列 | Redis + BullMQ | 未接入；用于生成、轮询、有限重试、超时和补偿 |
+| 文件 | S3 协议对象存储或阿里云 OSS | 未接入；用于参考素材、生成结果、签名 URL 和生命周期策略 |
+| 身份 | 当前数据库会话，后续可接 Keycloak/ZITADEL | 基础注册、登录、角色和停用已完成；企业 SSO/MFA 未接入 |
+| 可观测性 | OpenTelemetry + Sentry | 未接入；需要 trace、错误、供应商延迟、成功率和成本监控 |
+| 密钥 | 本地环境变量/Keychain，生产 KMS/Secret Manager | 本地边界已完成；生产密钥轮换与审计未完成 |
+
+平台 API 与本地 Canvas Agent 的 `/providers/*` 保持同构画布调用契约。橙月官方渠道使用平台 HttpOnly 会话完成鉴权和计费，本地 Agent 网关则继续使用只适用于可信单机边界的连接令牌。
+
+## 任务与账本
+
+当前生成计费流程：
+
+1. 在数据库事务中读取当前价格版本，计算最高预计费用。
+2. 创建任务并把预计积分从可用余额转为冻结余额，写入一笔平衡的账本交易。
+3. 平台 API 调用供应商，保存供应商任务 ID、请求幂等键、价格快照和脱敏请求摘要；视频提交后由浏览器轮询平台 API。
+4. 成功后按定价规则或音频实际 `usage_characters` 结算，多退少补；供应商拒绝、异常或最终失败时释放冻结积分。
+5. 每个状态变更使用幂等键，重试不能重复扣款、重复退款或重复创建上游任务。
+
+当前数据表覆盖 `User`、`Session`、`Wallet`、`LedgerTransaction`、`LedgerEntry`、`RechargeOrder`、`PaymentEvent`、`GenerationJob`、`PriceVersion` 和 `AuditLog`。云端多人阶段仍需增加 `Workspace`、`Membership`、`Project`、`Asset`、供应商尝试记录、正式支付回调和退款记录。
+
+钱包余额是事务保护的缓存值，每笔交易至少包含两条方向相反、金额相等的分录。金额统一使用整数“厘积分”，不使用 JavaScript 浮点数记账。应用层在 Serializable 事务中加行锁并检查平衡，数据库层同时禁止负余额、零金额分录、分录更新/删除及不平衡事务提交。
+
+## 充值与支付
+
+当前已实现内测人工充值：用户创建带唯一订单号和到期时间的支付宝/微信订单，管理员核实真实到账及支付流水号后确认，确认与账本入账在同一 Serializable 事务中完成。平台不会解析截图，也不会根据聊天消息或用户自报金额增加余额。
+
+正式收费仍必须使用支付宝商户接口和微信支付 API v3，通过平台订单、签名回调、幂等入账、退款与日对账完成闭环。个人转账流程只能用于受控内测。
+
+支付回调必须验证平台证书/签名、商户号、应用号、订单金额、订单状态和回调幂等键。回调处理先落原始事件，再在数据库事务中更新订单和账本，任何异常都进入补偿队列和人工对账列表。
+
+## 上线门槛
+
+- 在现有用户 RBAC、请求限流和审计日志上补齐工作区/项目隔离、内容合规、素材授权与运营风控。
+- 用对象存储替代浏览器本地媒体，画布快照启用版本和并发控制。
+- 对所有供应商调用做超时、有限重试、熔断和成本上限；生成任务不在 HTTP 请求中长时间阻塞。
+- 建立充值、扣费、退款、供应商账单和平台账本的每日对账。
+- 备份 PostgreSQL 和对象存储元数据，并演练恢复。
+- 处理 AGPL-3.0：网络商业使用前，应选择履行对应源码提供义务、取得原作者商业许可，或重写/隔离受 AGPL 影响的部分。不能把当前分支直接作为闭源 SaaS 上线。
+
+## 交付顺序
+
+1. 本地单人版：官方供应商网关、模型目录、成本表和 Keychain，已完成。
+2. 内部工作站：账户、权限、账本、人工充值和容器化数据库已完成；云端项目、对象存储与 BullMQ 待完成。
+3. 收费试运行：支付宝/微信商户支付、退款、对账、风控和运营后台。
+4. 正式平台：高可用、监控告警、灾备、内容合规、商业许可或 AGPL 合规发布。

@@ -1,4 +1,5 @@
 import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -94,6 +95,15 @@ export function normalizeSeedanceDuration(value: string) {
     return Math.max(4, Math.min(15, seconds));
 }
 
+export function normalizeSeedanceDurationForModel(model: string, value: string) {
+    const orangeMoonModel = getOrangeMoonVideoModel(modelOptionName(model));
+    const duration = orangeMoonModel
+        ? Math.max(orangeMoonModel.minDuration, Math.min(orangeMoonModel.maxDuration, Math.floor(Number(value) || orangeMoonModel.minDuration)))
+        : normalizeSeedanceDuration(value);
+    if (!orangeMoonModel?.fixedDuration && !orangeMoonModel?.allowedDurations?.length && orangeMoonModel?.name !== "Seedance 2.0-fast-720p") return duration;
+    return orangeMoonModel.durations.reduce((best, current) => (Math.abs(current - duration) < Math.abs(best - duration) ? current : best), orangeMoonModel.durations[0]);
+}
+
 export function normalizeSeedanceRatio(value: string) {
     if (!value || value === "auto" || value === "adaptive") return "adaptive";
     if (seedanceRatioOptions.some((item) => item.value === value)) return value;
@@ -163,6 +173,28 @@ export function seedanceVideoReferenceError(videos: ReferenceVideo[]) {
         }
     }
     if (totalDurationMs > 15000) return "Seedance 参考视频总时长不能超过 15 秒";
+    return "";
+}
+
+export function seedanceReferenceLimitsForModel(model: string) {
+    return getOrangeMoonVideoModel(modelOptionName(model))?.references || SEEDANCE_REFERENCE_LIMITS;
+}
+
+export function seedanceReferenceSetError(model: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
+    const orangeMoonModel = getOrangeMoonVideoModel(modelOptionName(model));
+    if (!orangeMoonModel) return seedanceVideoReferenceError(videos);
+    const limits = orangeMoonModel.references;
+    if (images.length > limits.images) return `当前模型最多支持 ${limits.images} 张参考图`;
+    if (videos.length > limits.videos) return limits.videos ? `当前模型最多支持 ${limits.videos} 段参考视频` : "当前模型不支持参考视频";
+    if (audios.length > limits.audios) return limits.audios ? `当前模型最多支持 ${limits.audios} 段参考音频` : "当前模型不支持参考音频";
+    let totalDurationMs = 0;
+    for (const video of videos) {
+        if (video.bytes && video.bytes > limits.videoMaxBytes) return `${video.name} 超过 ${Math.round(limits.videoMaxBytes / 1024 / 1024)}MB，请压缩后再上传`;
+        if (!video.durationMs) continue;
+        if (video.durationMs < 2000 || video.durationMs > 15000) return `${video.name} 时长需要在 2-15 秒之间`;
+        totalDurationMs += video.durationMs;
+    }
+    if (totalDurationMs > 15000) return "参考视频总时长不能超过 15 秒";
     return "";
 }
 

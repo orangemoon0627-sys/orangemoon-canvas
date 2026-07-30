@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Orange Moon Canvas PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 03:35:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=orangemoon-canvas-backup.service
+
+[Install]
+WantedBy=timers.target

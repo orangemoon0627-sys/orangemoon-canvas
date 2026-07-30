@@ -1,11 +1,12 @@
 import axios from "axios";
 
-import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildApiUrl, isOrangeMoonManagedConfig, resolveModelRequestConfig, resolveModelScript, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { normalizePluginImages, runModelPlugin } from "./model-plugin";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
+import { orangeMoonPost } from "./orange-moon-gateway";
 import type { ReferenceImage } from "@/types/image";
 
 export type AiTextMessage = {
@@ -69,7 +70,7 @@ type ResponseStreamState = { buffer: string; text: string; payload?: ResponseApi
 
 type ImageApiResponse = {
     data?: Array<Record<string, unknown>>;
-    error?: { message?: string };
+    error?: string | { message?: string };
     code?: number;
     msg?: string;
 };
@@ -244,6 +245,7 @@ function parseImagePayload(payload: ImageApiResponse) {
     if (typeof payload.code === "number" && payload.code !== 0) {
         throw new Error(payload.msg || "请求失败");
     }
+    if (payload.error) throw new Error(typeof payload.error === "string" ? payload.error : payload.error.message || "请求失败");
     const images =
         payload.data
             ?.map(resolveImageDataUrl)
@@ -259,9 +261,11 @@ function parseImagePayload(payload: ImageApiResponse) {
 
 function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
-    if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; code?: number }>(error)) {
+    if (axios.isAxiosError<{ error?: string | { message?: string }; message?: string | string[]; msg?: string; code?: number }>(error)) {
         const responseData = error.response?.data;
-        return responseData?.msg || responseData?.error?.message || readStatusError(error.response?.status, fallback);
+        const errorMessage = typeof responseData?.error === "string" ? responseData.error : responseData?.error?.message;
+        const responseMessage = Array.isArray(responseData?.message) ? responseData.message.join("；") : responseData?.message;
+        return responseMessage || responseData?.msg || errorMessage || readStatusError(error.response?.status, fallback);
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
     return error instanceof Error ? error.message : fallback;
@@ -659,6 +663,25 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
     return images;
 }
 
+async function requestOrangeMoonImages(config: AiConfig, prompt: string, n: number, size: string | undefined, quality: string | undefined, background: string | undefined, image: string | undefined, options?: RequestOptions) {
+    if (background) throw new Error("橙月官方 Image 2 当前不支持透明背景");
+    const payload = await orangeMoonPost<ImageApiResponse>(
+        "/metajing/v1/images/generations",
+        {
+            model: "gpt-image-2",
+            prompt: withSystemPrompt(config, prompt),
+            n,
+            ...(size ? { size } : {}),
+            ...(quality ? { quality } : {}),
+            ...(image ? { image } : {}),
+            response_format: "url",
+            output_format: IMAGE_OUTPUT_FORMAT,
+        },
+        { signal: options?.signal },
+    );
+    return parseImagePayload(payload);
+}
+
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
@@ -692,6 +715,13 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
+    if (isOrangeMoonManagedConfig(requestConfig)) {
+        try {
+            return await requestOrangeMoonImages(requestConfig, prompt, Math.min(n, 4), requestSize, quality, background, undefined, options);
+        } catch (error) {
+            throw new Error(readAxiosError(error, "Image 2 请求失败"));
+        }
+    }
     try {
         const response = await axios.post<ImageApiResponse>(
             aiApiUrl(requestConfig, "/images/generations"),
@@ -753,6 +783,16 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
+    if (isOrangeMoonManagedConfig(requestConfig)) {
+        if (mask) throw new Error("橙月官方 Image 2 暂不支持蒙版编辑");
+        if (references.length > 1) throw new Error("橙月官方 Image 2 图生图当前只支持 1 张参考图");
+        try {
+            const reference = references[0] ? await imageToDataUrl(references[0]) : undefined;
+            return await requestOrangeMoonImages(requestConfig, requestPrompt, Math.min(n, 4), requestSize, quality, background, reference, options);
+        } catch (error) {
+            throw new Error(readAxiosError(error, "Image 2 图生图请求失败"));
+        }
+    }
     const formData = new FormData();
     formData.set("model", requestConfig.model);
     formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));

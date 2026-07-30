@@ -11,12 +11,20 @@ sanitize_id() {
     printf '%s' "$1" | tr -cd 'A-Za-z0-9-'
 }
 
+sanitize_agent_value() {
+    printf '%s' "$1" | tr -cd 'A-Za-z0-9_./:-'
+}
+
 GA4_ID=$(sanitize_id "${ANALYTICS_GA4_ID:-}")
 BAIDU_ID=$(sanitize_id "${ANALYTICS_BAIDU_ID:-}")
+CANVAS_AGENT_URL=$(sanitize_agent_value "${CANVAS_AGENT_URL:-}")
+CANVAS_AGENT_MODEL=$(sanitize_agent_value "${CANVAS_AGENT_MODEL:-}")
 
 cat > /usr/share/nginx/html/config.js <<EOF
 window.__RUNTIME_CONFIG__ = {
   ANALYTICS_GA4_ID: "${GA4_ID}",
-  ANALYTICS_BAIDU_ID: "${BAIDU_ID}"
+  ANALYTICS_BAIDU_ID: "${BAIDU_ID}",
+  CANVAS_AGENT_URL: "${CANVAS_AGENT_URL}",
+  CANVAS_AGENT_MODEL: "${CANVAS_AGENT_MODEL}"
 };
 EOF

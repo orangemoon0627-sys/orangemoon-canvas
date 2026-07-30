@@ -1,12 +1,41 @@
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
-import { useEffect, useRef, useState } from "react";
-import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, Info, Moon, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import type { ReactNode } from "react";
+import { useState } from "react";
+import { Popover, Segmented, Switch, Tooltip } from "antd";
+import {
+    Clapperboard,
+    CircleDot,
+    Eraser,
+    FileText,
+    Grid2x2,
+    Group,
+    History,
+    Image as ImageIcon,
+    Info,
+    Layers3,
+    Library,
+    Moon,
+    MousePointer2,
+    Music2,
+    Palette,
+    Plus,
+    Puzzle,
+    Redo2,
+    Scissors,
+    Square,
+    Sun,
+    Trash2,
+    Type,
+    Undo2,
+    Upload,
+    Video,
+    Workflow,
+    X,
+} from "lucide-react";
 
-import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
+import { canvasThemes, type CanvasBackgroundMode, type CanvasTheme } from "@/lib/canvas-theme";
 import { getNodePluginId, listNodeDefinitions, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
+import { useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 
 export function CanvasToolbar({
     selectedCount,
@@ -19,8 +48,12 @@ export function CanvasToolbar({
     onAddAudio,
     onAddText,
     onAddConfig,
+    onAddVideoComposer,
+    onAddScript,
     onAddGroup,
     onAddExtensionNode,
+    onOpenDirector,
+    onOpenAssetPicker,
     onUndo,
     onRedo,
     onUpload,
@@ -40,8 +73,12 @@ export function CanvasToolbar({
     onAddAudio: () => void;
     onAddText: () => void;
     onAddConfig: () => void;
+    onAddVideoComposer: () => void;
+    onAddScript: () => void;
     onAddGroup: () => void;
     onAddExtensionNode: (type: string) => void;
+    onOpenDirector: () => void;
+    onOpenAssetPicker: () => void;
     onUndo: () => void;
     onRedo: () => void;
     onUpload: () => void;
@@ -51,321 +88,187 @@ export function CanvasToolbar({
     onBackgroundModeChange: (mode: CanvasBackgroundMode) => void;
     onShowImageInfoChange: (show: boolean) => void;
 }) {
-    const wrapRef = useRef<HTMLDivElement>(null);
-    const rootRef = useRef<HTMLDivElement>(null);
     const colorTheme = useThemeStore((state) => state.theme);
     const setTheme = useThemeStore((state) => state.setTheme);
     const theme = canvasThemes[colorTheme];
-    const [hovered, setHovered] = useState<string | null>(null);
-    const [tipX, setTipX] = useState(0);
+    const sidePanelOpen = useCanvasSidePanelStore((state) => state.panelOpen);
+    const toggleSidePanel = useCanvasSidePanelStore((state) => state.togglePanel);
+    const [createOpen, setCreateOpen] = useState(false);
     const [appearanceOpen, setAppearanceOpen] = useState(false);
-    const [panelX, setPanelX] = useState(0);
-    const [extensionsOpen, setExtensionsOpen] = useState(false);
-    const [extPanelX, setExtPanelX] = useState(0);
-    // 扩展(插件)节点,随注册表变化实时更新
     useNodeRegistryVersion();
     const extensionDefs = listNodeDefinitions().filter((def) => def.showInCreateMenu !== false && getNodePluginId(def.type) !== "builtin");
-    const dockStyle = { background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item, boxShadow: colorTheme === "dark" ? "0 18px 45px rgba(0,0,0,.32)" : "0 16px 40px rgba(28,25,23,.12)" };
-    const hoverStyle = { background: theme.toolbar.itemHover, color: theme.toolbar.activeText };
-    const activeStyle = { background: theme.toolbar.activeBg, color: theme.toolbar.activeText };
-    const tip = hovered ? toolLabel(hovered) : "";
 
-    // 点击工具栏(含弹出面板)以外的地方,关闭弹出的扩展节点/画布外观面板
-    useEffect(() => {
-        if (!extensionsOpen && !appearanceOpen) return;
-        const handlePointerDown = (event: PointerEvent) => {
-            if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-                setExtensionsOpen(false);
-                setAppearanceOpen(false);
-            }
-        };
-        document.addEventListener("pointerdown", handlePointerDown, true);
-        return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-    }, [extensionsOpen, appearanceOpen]);
+    const runCreate = (action: () => void) => {
+        action();
+        setCreateOpen(false);
+    };
 
-    return (
-        <div ref={rootRef} className="pointer-events-none absolute bottom-5 z-50 flex justify-center" style={{ left: 300, right: 16 }}>
-            {tip ? <DockTip label={tip} x={tipX} theme={theme} /> : null}
-            <div ref={wrapRef} className="thin-scrollbar pointer-events-auto flex h-14 max-w-full items-center gap-1 overflow-x-auto rounded-xl border px-2 shadow-lg backdrop-blur [&>*]:shrink-0" style={dockStyle}>
-                <ToolbarButton id="tool-hand" label="移动/选择" active={!selectedCount} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onDeselect}>
-                    <Hand className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-undo" label="撤销" disabled={!canUndo} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUndo}>
-                    <Undo2 className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-redo" label="重做" disabled={!canRedo} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onRedo}>
-                    <Redo2 className="size-4.5" />
-                </ToolbarButton>
-                <Divider theme={theme} />
-                <ToolbarButton id="tool-text" label="文本" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddText}>
-                    <Type className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-image" label="图片" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddImage}>
-                    <ImageIcon className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-video" label="视频" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddVideo}>
-                    <Video className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-audio" label="音频" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddAudio}>
-                    <Music2 className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-config" label="生成配置" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddConfig}>
-                    <Settings2 className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-group" label="组" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddGroup}>
-                    <Group className="size-4.5" />
-                </ToolbarButton>
-                {extensionDefs.length ? (
-                    <ToolbarButton
-                        id="tool-extensions"
-                        label="扩展节点"
-                        active={extensionsOpen}
-                        hovered={hovered}
-                        activeStyle={activeStyle}
-                        hoverStyle={hoverStyle}
-                        wrapRef={wrapRef}
-                        onTipX={setTipX}
-                        onHover={setHovered}
-                        onClick={(event) => {
-                            setExtPanelX(getTipX(wrapRef.current, event.currentTarget));
-                            setAppearanceOpen(false);
-                            setExtensionsOpen((value) => !value);
-                        }}
-                    >
-                        <Puzzle className="size-4.5" />
-                    </ToolbarButton>
-                ) : null}
-                <ToolbarButton id="tool-upload" label="上传资产" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUpload}>
-                    <Upload className="size-4.5" />
-                </ToolbarButton>
-                <Divider theme={theme} />
-                <ToolbarButton
-                    id="tool-style"
-                    label="画布外观"
-                    active={appearanceOpen}
-                    hovered={hovered}
-                    activeStyle={activeStyle}
-                    hoverStyle={hoverStyle}
-                    wrapRef={wrapRef}
-                    onTipX={setTipX}
-                    onHover={setHovered}
-                    onClick={(event) => {
-                        setPanelX(getTipX(wrapRef.current, event.currentTarget));
-                        setExtensionsOpen(false);
-                        setAppearanceOpen((value) => !value);
-                    }}
-                >
-                    <Palette className="size-4.5" />
-                </ToolbarButton>
-                {selectedCount ? (
-                    <>
-                        <Divider theme={theme} />
-                        <ToolbarButton id="tool-delete" label="删除选中" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onDelete} danger>
-                            <Trash2 className="size-4.5" />
-                        </ToolbarButton>
-                    </>
-                ) : null}
-                <Divider theme={theme} />
-                <ToolbarButton id="tool-clear" label="清空画布" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onClear} danger>
-                    <Eraser className="size-4.5" />
-                </ToolbarButton>
+    const createMenu = (
+        <div className="w-[196px] p-1" data-canvas-no-zoom>
+            <PanelLabel>添加节点</PanelLabel>
+            <div className="grid grid-cols-1 gap-0.5">
+                <MenuButton icon={<Type className="size-4" />} label="文本" onClick={() => runCreate(onAddText)} />
+                <MenuButton icon={<ImageIcon className="size-4" />} label="图片" onClick={() => runCreate(onAddImage)} />
+                <MenuButton icon={<Video className="size-4" />} label="视频" onClick={() => runCreate(onAddVideo)} />
+                <MenuButton icon={<Scissors className="size-4" />} label="视频合成" badge="Beta" onClick={() => runCreate(onAddVideoComposer)} />
+                <MenuButton icon={<Clapperboard className="size-4" />} label="导演台" badge="NEW" onClick={() => runCreate(onOpenDirector)} />
+                <MenuButton icon={<Music2 className="size-4" />} label="音频" onClick={() => runCreate(onAddAudio)} />
+                <MenuButton icon={<FileText className="size-4" />} label="脚本" onClick={() => runCreate(onAddScript)} />
+                <MenuButton icon={<Library className="size-4" />} label="素材库" onClick={() => runCreate(toggleSidePanel)} />
+                <MenuButton icon={<Group className="size-4" />} label="分组" onClick={() => runCreate(onAddGroup)} />
+                {extensionDefs.map((def) => (
+                    <MenuButton key={def.type} icon={def.icon || <Puzzle className="size-4" />} label={def.title} onClick={() => runCreate(() => onAddExtensionNode(def.type))} />
+                ))}
             </div>
-
-            {extensionsOpen && extensionDefs.length ? (
-                <div
-                    className="thin-scrollbar pointer-events-auto absolute bottom-[72px] z-30 max-h-[50vh] w-[240px] -translate-x-1/2 overflow-y-auto rounded-xl border p-2 shadow-xl backdrop-blur"
-                    style={{ left: extPanelX || "50%", background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item }}
-                >
-                    <div className="px-1.5 pb-1.5 text-[11px] font-medium opacity-50">扩展节点</div>
-                    <div className="grid gap-0.5">
-                        {extensionDefs.map((def) => (
-                            <button
-                                key={def.type}
-                                type="button"
-                                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition"
-                                style={{ color: theme.toolbar.item }}
-                                onMouseEnter={(event) => (event.currentTarget.style.background = theme.toolbar.itemHover)}
-                                onMouseLeave={(event) => (event.currentTarget.style.background = "transparent")}
-                                onClick={() => {
-                                    onAddExtensionNode(def.type);
-                                    setExtensionsOpen(false);
-                                }}
-                            >
-                                <span className="grid size-7 shrink-0 place-items-center rounded-md text-base" style={{ background: theme.toolbar.itemHover }}>
-                                    {def.icon}
-                                </span>
-                                <span className="min-w-0 flex-1 truncate">{def.title}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            ) : null}
-
-            {appearanceOpen ? (
-                <div
-                    className="pointer-events-auto absolute bottom-[72px] z-30 w-[248px] -translate-x-1/2 rounded-xl border p-2.5 shadow-xl backdrop-blur"
-                    style={{ left: panelX || "50%", background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item }}
-                >
-                    <div className="px-1 pb-2 text-sm font-medium opacity-65">画布外观</div>
-                    <div className="px-1 pb-1.5 text-[11px] font-medium opacity-50">主题模式</div>
-                    <div className="grid grid-cols-2 gap-1 rounded-lg p-1" style={{ background: theme.toolbar.itemHover }}>
-                        <CanvasThemeButton colorTheme={colorTheme} targetTheme="light" onThemeChange={setTheme}>
-                            <Sun className="size-4" />
-                            浅色
-                        </CanvasThemeButton>
-                        <CanvasThemeButton colorTheme={colorTheme} targetTheme="dark" onThemeChange={setTheme}>
-                            <Moon className="size-4" />
-                            深色
-                        </CanvasThemeButton>
-                    </div>
-                    <div className="mt-3 px-1 pb-1.5 text-[11px] font-medium opacity-50">网格样式</div>
-                    <Segmented
-                        className="w-full !p-1 [&_.ant-segmented-group]:!flex [&_.ant-segmented-item]:!min-h-8 [&_.ant-segmented-item]:!flex-1 [&_.ant-segmented-item-label]:!min-h-8 [&_.ant-segmented-item-label]:!leading-8"
-                        value={backgroundMode}
-                        onChange={(value) => onBackgroundModeChange(value as CanvasBackgroundMode)}
-                        options={[
-                            {
-                                value: "dots",
-                                label: (
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <CircleDot className="size-4" />点
-                                    </span>
-                                ),
-                            },
-                            {
-                                value: "lines",
-                                label: (
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <Grid2x2 className="size-4" />线
-                                    </span>
-                                ),
-                            },
-                            {
-                                value: "blank",
-                                label: (
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <Square className="size-4" />
-                                        空白
-                                    </span>
-                                ),
-                            },
-                        ]}
-                    />
-                    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg px-1.5 py-1">
-                        <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium opacity-65">
-                            <Info className="size-3.5" />
-                            图片信息
-                        </span>
-                        <Switch size="small" checked={showImageInfo} onChange={onShowImageInfoChange} />
-                    </div>
-                </div>
-            ) : null}
+            <div className="my-2 h-px bg-border" />
+            <PanelLabel>添加资源</PanelLabel>
+            <MenuButton icon={<Upload className="size-4" />} label="上传素材" onClick={() => runCreate(onUpload)} />
+            <MenuButton icon={<History className="size-4" />} label="从资产库选择" onClick={() => runCreate(onOpenAssetPicker)} />
+            <div className="my-2 h-px bg-border" />
+            <MenuButton icon={<Eraser className="size-4" />} label="清空画布" danger onClick={() => runCreate(onClear)} />
         </div>
     );
-}
 
-function ToolbarButton({
-    id,
-    label,
-    active,
-    hovered,
-    activeStyle,
-    hoverStyle,
-    wrapRef,
-    onTipX,
-    onHover,
-    onClick,
-    disabled = false,
-    danger = false,
-    children,
-}: {
-    id: string;
-    label: string;
-    active?: boolean;
-    hovered: string | null;
-    activeStyle?: CSSProperties;
-    hoverStyle: CSSProperties;
-    wrapRef: RefObject<HTMLDivElement | null>;
-    onTipX: (x: number) => void;
-    onHover: (id: string | null) => void;
-    onClick?: (event: ReactMouseEvent<HTMLElement>) => void;
-    disabled?: boolean;
-    danger?: boolean;
-    children: ReactNode;
-}) {
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const appearanceMenu = (
+        <div className="w-[252px] p-1" data-canvas-no-zoom>
+            <PanelLabel>画布外观</PanelLabel>
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-black/5 p-1 dark:bg-white/5">
+                <ThemeButton active={colorTheme === "light"} onClick={() => setTheme("light")}>
+                    <Sun className="size-4" />浅色
+                </ThemeButton>
+                <ThemeButton active={colorTheme === "dark"} onClick={() => setTheme("dark")}>
+                    <Moon className="size-4" />深色
+                </ThemeButton>
+            </div>
+            <div className="mt-3 px-1 pb-1.5 text-[11px] font-medium opacity-50">背景网格</div>
+            <Segmented
+                block
+                size="small"
+                value={backgroundMode}
+                onChange={(value) => onBackgroundModeChange(value as CanvasBackgroundMode)}
+                options={[
+                    { value: "dots", label: <span className="inline-flex items-center gap-1"><CircleDot className="size-3.5" />点</span> },
+                    { value: "lines", label: <span className="inline-flex items-center gap-1"><Grid2x2 className="size-3.5" />线</span> },
+                    { value: "blank", label: <span className="inline-flex items-center gap-1"><Square className="size-3.5" />空白</span> },
+                ]}
+            />
+            <label className="mt-3 flex h-9 items-center justify-between rounded-lg px-2 text-xs">
+                <span className="inline-flex items-center gap-2"><Info className="size-3.5" />显示图片信息</span>
+                <Switch size="small" checked={showImageInfo} onChange={onShowImageInfoChange} />
+            </label>
+        </div>
+    );
 
     return (
-        <Button
-            type="text"
-            aria-label={label}
-            className="!h-8 !w-8 !min-w-8 !p-0"
-            disabled={disabled}
-            style={active ? activeStyle : hovered === id && !disabled ? hoverStyle : { color: danger ? "#f87171" : theme.toolbar.item, opacity: disabled ? 0.35 : 1 }}
-            icon={children}
-            onMouseEnter={(event) => {
-                onHover(id);
-                onTipX(getTipX(wrapRef.current, event.currentTarget));
-            }}
-            onMouseLeave={() => onHover(null)}
-            onClick={onClick}
-        />
+        <>
+            <div className="pointer-events-none absolute bottom-5 left-5 z-[65]" data-canvas-no-zoom>
+                <button
+                    type="button"
+                    className="pointer-events-auto flex h-10 items-center gap-2 rounded-md px-2.5 text-xs transition hover:bg-black/5 dark:hover:bg-white/10"
+                    style={{ color: sidePanelOpen ? theme.node.text : theme.toolbar.item }}
+                    onClick={toggleSidePanel}
+                >
+                    <Layers3 className="size-4" />
+                    <span>资产管理</span>
+                </button>
+            </div>
+            <div className="pointer-events-none absolute bottom-5 right-12 z-[65]" data-canvas-no-zoom>
+            <div
+                className="pointer-events-auto flex h-12 items-center gap-1 rounded-lg border p-1.5 shadow-2xl backdrop-blur-xl"
+                style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item }}
+                onMouseDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+            >
+                <PopoverShell open={createOpen} onOpenChange={setCreateOpen} content={createMenu}>
+                    <RailButton label="创建节点" prominent active={createOpen} theme={theme}>
+                        {createOpen ? <X className="size-5" /> : <Plus className="size-5" />}
+                    </RailButton>
+                </PopoverShell>
+                <RailButton label="选择工具" active={!selectedCount} theme={theme} onClick={onDeselect}>
+                    <MousePointer2 className="size-[18px]" />
+                </RailButton>
+                <RailButton label="生成配置" theme={theme} onClick={onAddConfig}>
+                    <Workflow className="size-[18px]" />
+                </RailButton>
+                <RailButton label="图片节点" theme={theme} onClick={onAddImage}>
+                    <ImageIcon className="size-[18px]" />
+                </RailButton>
+                <RailButton label="上传素材" theme={theme} onClick={onUpload}>
+                    <Upload className="size-[18px]" />
+                </RailButton>
+                <div className="mx-1 h-7 w-px" style={{ background: theme.toolbar.border }} />
+                <RailButton label="撤销" disabled={!canUndo} theme={theme} onClick={onUndo}>
+                    <Undo2 className="size-[18px]" />
+                </RailButton>
+                <RailButton label="重做" disabled={!canRedo} theme={theme} onClick={onRedo}>
+                    <Redo2 className="size-[18px]" />
+                </RailButton>
+                <PopoverShell open={appearanceOpen} onOpenChange={setAppearanceOpen} content={appearanceMenu}>
+                    <RailButton label="画布外观" active={appearanceOpen} theme={theme}>
+                        <Palette className="size-[18px]" />
+                    </RailButton>
+                </PopoverShell>
+                {selectedCount ? (
+                    <RailButton label={`删除选中的 ${selectedCount} 个节点`} danger theme={theme} onClick={onDelete}>
+                        <Trash2 className="size-[18px]" />
+                    </RailButton>
+                ) : null}
+            </div>
+        </div>
+        </>
     );
 }
 
-function Divider({ theme }: { theme: CanvasTheme }) {
-    return <div className="mx-1 h-6 w-px" style={{ background: theme.toolbar.border }} />;
+function PopoverShell({ open, onOpenChange, content, children }: { open: boolean; onOpenChange: (open: boolean) => void; content: ReactNode; children: ReactNode }) {
+    return (
+        <Popover placement="topLeft" trigger="click" open={open} onOpenChange={onOpenChange} content={content} styles={{ container: { padding: 6, borderRadius: 8 } }}>
+            <span>{children}</span>
+        </Popover>
+    );
 }
 
-function CanvasThemeButton({ colorTheme, targetTheme, onThemeChange, children }: { colorTheme: CanvasColorTheme; targetTheme: CanvasColorTheme; onThemeChange: (theme: CanvasColorTheme) => void; children: ReactNode }) {
-    const theme = canvasThemes[colorTheme];
-    const active = colorTheme === targetTheme;
-    const activeStyle = colorTheme === "light" ? { background: "#111111", color: "#ffffff" } : { background: theme.toolbar.activeBg, color: theme.toolbar.activeText };
-
+function RailButton({ label, theme, active, prominent, danger, disabled, onClick, children }: { label: string; theme: CanvasTheme; active?: boolean; prominent?: boolean; danger?: boolean; disabled?: boolean; onClick?: () => void; children: ReactNode }) {
+    const style = prominent
+        ? { background: theme.toolbar.activeBg, color: theme.toolbar.activeText }
+        : active
+          ? { background: theme.toolbar.itemHover, color: theme.node.text }
+          : danger
+            ? { color: "#ef4444" }
+            : { color: theme.toolbar.item };
     return (
-        <AnimatedThemeToggler
-            theme={colorTheme}
-            targetTheme={targetTheme}
-            onThemeChange={onThemeChange}
-            className="inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-sm transition"
-            style={active ? activeStyle : { color: theme.toolbar.item }}
-            aria-label={`切换到${targetTheme === "dark" ? "深色" : "浅色"}主题`}
-            title={`切换到${targetTheme === "dark" ? "深色" : "浅色"}主题`}
-        >
+        <Tooltip title={label} placement="right">
+            <button
+                type="button"
+                className="grid size-9 place-items-center rounded-md transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-25 dark:hover:bg-white/10"
+                style={style}
+                disabled={disabled}
+                onClick={onClick}
+                aria-label={label}
+            >
+                {children}
+            </button>
+        </Tooltip>
+    );
+}
+
+function PanelLabel({ children }: { children: ReactNode }) {
+    return <div className="px-2 pb-2 pt-1 text-xs font-medium opacity-55">{children}</div>;
+}
+
+function MenuButton({ icon, label, badge, danger, onClick }: { icon: ReactNode; label: string; badge?: string; danger?: boolean; onClick: () => void }) {
+    return (
+        <button type="button" className={`flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs transition hover:bg-black/5 dark:hover:bg-white/10 ${danger ? "text-red-500" : ""}`} onClick={onClick}>
+            <span className="grid size-5 shrink-0 place-items-center">{icon}</span>
+            <span className="truncate">{label}</span>
+            {badge ? <span className="ml-auto rounded border px-1 py-0.5 text-[9px] leading-none opacity-55">{badge}</span> : null}
+        </button>
+    );
+}
+
+function ThemeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+    return (
+        <button type="button" onClick={onClick} className={`flex h-8 items-center justify-center gap-1.5 rounded-md text-xs transition ${active ? "bg-background shadow-sm" : "opacity-55 hover:opacity-100"}`}>
             {children}
-        </AnimatedThemeToggler>
+        </button>
     );
-}
-
-function DockTip({ label, x, theme }: { label: string; x: number; theme: CanvasTheme }) {
-    return (
-        <span className="absolute bottom-[calc(100%+8px)] -translate-x-1/2 rounded-md px-2 py-1 text-xs shadow-lg" style={{ left: x, background: theme.node.text, color: theme.node.panel }}>
-            {label}
-        </span>
-    );
-}
-
-function toolLabel(id: string) {
-    if (id === "tool-hand") return "移动/选择";
-    if (id === "tool-undo") return "撤销";
-    if (id === "tool-redo") return "重做";
-    if (id === "tool-text") return "文本";
-    if (id === "tool-image") return "图片";
-    if (id === "tool-video") return "视频";
-    if (id === "tool-audio") return "音频";
-    if (id === "tool-config") return "生成配置";
-    if (id === "tool-group") return "组";
-    if (id === "tool-extensions") return "扩展节点";
-    if (id === "tool-upload") return "上传资产";
-    if (id === "tool-style") return "画布外观";
-    if (id === "tool-delete") return "删除选中";
-    if (id === "tool-clear") return "清空画布";
-    return "";
-}
-
-function getTipX(wrap: HTMLDivElement | null, target: HTMLElement) {
-    if (!wrap) return 0;
-    const wrapBox = wrap.parentElement?.getBoundingClientRect() || wrap.getBoundingClientRect();
-    const box = target.getBoundingClientRect();
-    return box.left - wrapBox.left + box.width / 2;
 }

@@ -1,13 +1,13 @@
 ---
 title: Docker 部署
-description: 使用 Docker Compose 部署无限画布
+description: 使用 Docker Compose 部署橙月画布 Web、平台 API 与 PostgreSQL
 ---
 
 # Docker 部署
 
-如果你希望在自己的机器或服务器上运行项目，可以直接使用 Docker Compose。
+如果你希望在自己的机器或服务器上运行项目，可以使用 Docker Compose 同时启动 nginx Web、NestJS 平台 API、一次性 Prisma 迁移和 PostgreSQL。平台 API 不会把供应商密钥发送给浏览器。
 
-## 使用发布镜像
+## 完整平台启动
 
 ```bash
 git clone git@github.com:basketikun/infinite-canvas.git
@@ -15,19 +15,68 @@ cd infinite-canvas
 docker compose up -d
 ```
 
+启动顺序由 Compose 管理：PostgreSQL 健康后运行 `platform-migrate`，迁移成功后启动 `platform-api`，最后启动 Web。`platform-migrate` 正常退出码应为 0，不需要常驻。
+
 启动后访问：
 
 ```text
 http://localhost:3000
 ```
 
-## 本地构建镜像
+## 本地开发构建
 
 如果需要基于当前源码构建镜像：
 
 ```bash
 docker compose -f docker-compose.local.yml up -d --build
 ```
+
+本地配置把 PostgreSQL 暴露在 `127.0.0.1:54329`、平台 API 暴露在 `127.0.0.1:17400`，Web 仍使用端口 3000。仅本地 Compose 默认允许首个注册用户成为管理员并启用人工支付宝/微信充值。
+
+## 生产配置
+
+至少在根目录 `.env` 或部署平台的密钥配置中设置以下变量：
+
+| 变量 | 说明 |
+| --- | --- |
+| `POSTGRES_PASSWORD` | PostgreSQL 强随机密码，不能使用示例默认值 |
+| `PLATFORM_ALLOWED_ORIGINS` | 允许访问平台 API 的完整 HTTPS Web Origin，多个值用逗号分隔 |
+| `PLATFORM_BODY_LIMIT_MB` | 单次平台 API 请求体上限，范围 1-128MB；低内存主机建议 32 |
+| `PLATFORM_MAX_CONCURRENT_GENERATIONS` | 每个 API 实例同时处理的生成提交数；低内存主机建议 2 |
+| `PLATFORM_COOKIE_SECURE` | HTTPS 生产环境必须设为 `true` |
+| `PLATFORM_IP_HASH_SALT` | 用于审计 IP 哈希的独立随机盐 |
+| `PLATFORM_ALLOW_FIRST_USER_ADMIN` | 生产环境保持 `false` |
+| `METAJING_API_KEY` | Image 2 与 Seedance 的服务端供应商密钥 |
+| `MINIMAX_AUDIO_API_KEY` | MiniMax Audio 服务端供应商密钥 |
+| `MINIMAX_DEFAULT_VOICE_ID` | MiniMax 默认音色，可选 |
+| `PLATFORM_METAJING_USD_TO_CNY` | 1 美元 MetaJing 额度的实际人民币采购成本，当前账号为 `1.0` |
+| `PLATFORM_MINIMAX_USD_TO_CNY` | MiniMax 美元账单折算汇率，默认 `7.3` |
+| `PLATFORM_PRICE_MARKUP` | 上游人民币成本的零售倍数，当前为 `1.65` |
+| `PLATFORM_AGENT_INPUT_CREDITS_PER_MILLION` | Terra 每百万普通输入 Token 的积分售价，默认 `18.563` |
+| `PLATFORM_AGENT_CACHED_INPUT_CREDITS_PER_MILLION` | Terra 每百万缓存输入 Token 的积分售价，默认 `1.857` |
+| `PLATFORM_AGENT_OUTPUT_CREDITS_PER_MILLION` | Terra 每百万输出 Token 的积分售价，默认 `111.375` |
+| `PLATFORM_AGENT_RESERVE_CREDITS` | Terra 每轮调用前冻结的积分，默认 `2` |
+| `CANVAS_AGENT_INTERNAL_SECRET` | Platform API 与云端 Agent 之间的独立内部计费密钥，生产环境至少 32 字符 |
+
+供应商密钥和支付配置应优先使用 KMS、Secret Manager 或容器 Secret 注入，不要写入镜像、Git、前端运行时配置或公开日志。HTTPS 应在 nginx 前方的负载均衡器或反向代理终止。
+
+仓库中的 `deploy/hk/` 是共享 `2C/2GB` 香港主机的受限部署模板：PostgreSQL、API 和 Web 均有独立内存/CPU/PID 限额，不映射宿主机 80/443，通过现有 Caddy ingress 接入，并附带每日 `pg_dump` systemd timer。该模板适合 5 个内测账号轻量使用，但只允许 2 个生成提交并发、单请求最多 32MB；它不是十几人同时处理大媒体文件的配置。
+
+当前主机实测 5 路并发完成 100 个 Web/健康请求约需 4.4 秒；5 路同时上传 20MB 无效媒体请求时，2 路进入解析、3 路按限制返回 429，Platform API 峰值约 163MB、结束后约 38MB。该结果只覆盖平台与媒体代理入口，不等于 5 路真实供应商生成压测。
+
+生产环境关闭“首用户管理员”后，迁移完成即可通过受控的一次性容器创建或提升管理员：
+
+```bash
+ADMIN_EMAIL=admin@example.com \
+ADMIN_PASSWORD='replace-with-a-strong-password' \
+docker compose run --rm \
+  -e ADMIN_EMAIL -e ADMIN_PASSWORD \
+  platform-api node dist/scripts/create-admin.js
+```
+
+命令只用于初始化。真实密码应由部署系统的 Secret 注入，避免进入仓库和共享 shell 记录。
+
+内测人工收款由 `MANUAL_ALIPAY_*` 和 `MANUAL_WECHAT_*` 变量控制，生产 Compose 默认关闭。个人转账只能由管理员核对真实到账和支付流水后手工确认；当前版本不根据截图自动入账。正式收费前仍需接入支付宝商户接口、微信支付 API v3、签名回调、退款和每日对账。
 
 ## 文档站镜像
 
@@ -49,7 +98,9 @@ docker compose -f docker-compose.local.yml up -d --build
 
 ## 数据说明
 
-当前主应用镜像只启动 Next.js。画布、我的素材、生成记录和 AI API Key 默认保存在浏览器本地；第三方提示词由浏览器前端直连拉取，不需要额外挂载数据目录。
+PostgreSQL 数据写入 Compose 卷 `orangemoon-postgres`（本地文件使用 `orangemoon-postgres-local`），包含用户、会话、钱包、账本、充值订单、价格版本、审计记录和官方生成任务。
+
+画布项目、我的素材及自定义渠道配置目前仍保存在每个浏览器本地，不会因为注册账户自动同步到服务器。当前 Compose 也尚未包含 Redis/BullMQ 和对象存储，因此还不适合作为十几人共享的生产素材库。上线前需要完成云端项目/工作区隔离、S3/OSS、任务 worker、备份恢复和监控。
 
 ## 统计分析（可选）
 

@@ -3,8 +3,11 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
+import { canonicalOrangeMoonVideoModel, getOrangeMoonModelLabel, ORANGE_MOON_CHANNEL_ID, ORANGE_MOON_GATEWAY_URL, ORANGE_MOON_MODELS, ORANGE_MOON_PROVIDER } from "@/lib/orange-moon-provider";
+
 export type ApiCallFormat = "openai" | "gemini";
 export type ModelCapability = "image" | "video" | "text" | "audio";
+export type ModelProvider = "custom" | typeof ORANGE_MOON_PROVIDER;
 
 export type ChannelModel = {
     name: string;
@@ -18,6 +21,7 @@ export type ModelChannel = {
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
+    provider: ModelProvider;
     models: ChannelModel[];
 };
 
@@ -26,6 +30,7 @@ export type AiConfig = {
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
+    provider: ModelProvider;
     channels: ModelChannel[];
     model: string;
     imageModel: string;
@@ -65,39 +70,39 @@ const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
-    baseUrl: OPENAI_BASE_URL,
+    baseUrl: ORANGE_MOON_GATEWAY_URL,
     apiKey: "",
     apiFormat: "openai",
+    provider: ORANGE_MOON_PROVIDER,
     channels: [
+        createOrangeMoonChannel(),
         {
             id: "default",
-            name: "默认渠道",
+            name: "自定义渠道",
             baseUrl: OPENAI_BASE_URL,
             apiKey: "",
             apiFormat: "openai",
+            provider: "custom",
             models: [
-                { name: "gpt-image-2", capability: "image" },
-                { name: "grok-imagine-video", capability: "video" },
                 { name: "gpt-5.5", capability: "text" },
-                { name: "gpt-4o-mini-tts", capability: "audio" },
             ],
         },
     ],
-    model: "default::gpt-image-2",
-    imageModel: "default::gpt-image-2",
-    videoModel: "default::grok-imagine-video",
+    model: `${ORANGE_MOON_CHANNEL_ID}::gpt-image-2`,
+    imageModel: `${ORANGE_MOON_CHANNEL_ID}::gpt-image-2`,
+    videoModel: `${ORANGE_MOON_CHANNEL_ID}::seedance-2.0-720p-economy`,
     textModel: "default::gpt-5.5",
-    audioModel: "default::gpt-4o-mini-tts",
+    audioModel: `${ORANGE_MOON_CHANNEL_ID}::speech-2.8-hd`,
     audioVoice: "alloy",
     audioFormat: "mp3",
     audioSpeed: "1",
     audioInstructions: "",
-    videoSeconds: "6",
+    videoSeconds: "5",
     vquality: "720",
     videoGenerateAudio: "true",
     videoWatermark: "false",
     systemPrompt: "",
-    models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
+    models: [...ORANGE_MOON_MODELS.map((model) => `${ORANGE_MOON_CHANNEL_ID}::${model.name}`), "default::gpt-5.5"],
     quality: "auto",
     size: "1:1",
     background: "",
@@ -130,6 +135,7 @@ type ConfigStore = {
 const VIDEO_KEYWORDS = ["seedance", "video", "sora", "veo", "kling", "wan", "hailuo"];
 const AUDIO_KEYWORDS = ["audio", "tts", "speech", "voice", "music", "sound"];
 const IMAGE_KEYWORDS = ["seedream", "gpt-image", "image", "dall-e", "dalle", "imagen", "flux", "sdxl", "stable-diffusion", "midjourney"];
+const ORANGE_MOON_MODEL_NAMES = new Set(ORANGE_MOON_MODELS.map((model) => model.name));
 
 /** Best-effort default capability for a freshly fetched model name; user can override in the channel editor. */
 export function guessCapability(name: string): ModelCapability {
@@ -144,7 +150,8 @@ function findChannelModel(config: AiConfig, value: string): { channel: ModelChan
     const decoded = decodeChannelModel(value);
     const name = decoded?.model || value;
     const channel = decoded ? config.channels.find((item) => item.id === decoded.channelId) : config.channels.find((item) => item.models.some((model) => model.name === name));
-    const model = channel?.models.find((item) => item.name === name);
+    const canonicalName = channel?.provider === ORANGE_MOON_PROVIDER ? canonicalOrangeMoonVideoModel(name) : name;
+    const model = channel?.models.find((item) => item.name === canonicalName);
     return channel && model ? { channel, model } : null;
 }
 
@@ -158,8 +165,7 @@ export function modelMatchesCapability(config: AiConfig, value: string, capabili
 }
 
 export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability) {
-    if (!capability) return config.models;
-    return config.channels.flatMap((channel) => channel.models.filter((model) => model.capability === capability).map((model) => encodeChannelModel(channel.id, model.name)));
+    return visibleModelOptions(config.channels, capability);
 }
 
 /** The user script (if any) attached to a model; empty string means use the system default call. */
@@ -169,7 +175,7 @@ export function resolveModelScript(config: AiConfig, value: string) {
 
 function isAiConfigReady(config: AiConfig, model: string) {
     const channel = resolveModelChannel(config, model);
-    return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
+    return Boolean(model.trim() && (channel.provider === ORANGE_MOON_PROVIDER || (channel.baseUrl.trim() && channel.apiKey.trim())));
 }
 
 export const useConfigStore = create<ConfigStore>()(
@@ -227,7 +233,7 @@ export const useConfigStore = create<ConfigStore>()(
                         audioFormat: config.audioFormat || defaultConfig.audioFormat,
                         audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
                         audioInstructions: config.audioInstructions || "",
-                        videoSeconds: config.videoSeconds || "6",
+                        videoSeconds: config.videoSeconds || defaultConfig.videoSeconds,
                         vquality: config.vquality || "720",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
@@ -267,6 +273,7 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         baseUrl: channel?.baseUrl?.trim() || defaultBaseUrlForApiFormat(apiFormat),
         apiKey: channel?.apiKey || "",
         apiFormat,
+        provider: channel?.provider === ORANGE_MOON_PROVIDER ? ORANGE_MOON_PROVIDER : "custom",
         models: normalizeChannelModels(channel?.models),
     };
 }
@@ -293,11 +300,12 @@ export function modelOptionLabel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     if (!decoded) return value;
     const channel = config.channels.find((item) => item.id === decoded.channelId);
+    if (channel?.provider === ORANGE_MOON_PROVIDER) return getOrangeMoonModelLabel(decoded.model);
     return channel ? `${decoded.model}（${channel.name}）` : decoded.model;
 }
 
 export function modelOptionsFromChannels(channels: ModelChannel[]) {
-    return uniqueModelOptions(channels.flatMap((channel) => channel.models.map((model) => encodeChannelModel(channel.id, model.name))));
+    return visibleModelOptions(channels);
 }
 
 export function normalizeModelOptionValue(value: string | undefined, channels: ModelChannel[]) {
@@ -305,11 +313,17 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
     if (!model) return "";
     const decoded = decodeChannelModel(model);
     if (decoded) {
+        const officialName = equivalentOrangeMoonModelName(decoded.model);
+        const officialChannel = channels.find((item) => item.provider === ORANGE_MOON_PROVIDER && item.models.some((entry) => entry.name === officialName));
+        if (officialName && officialChannel) return encodeChannelModel(officialChannel.id, officialName);
         const channel = channels.find((item) => item.id === decoded.channelId);
-        return channel && channel.models.some((item) => item.name === decoded.model) ? model : "";
+        const normalizedName = channel?.provider === ORANGE_MOON_PROVIDER ? canonicalOrangeMoonVideoModel(decoded.model) : decoded.model;
+        return channel && channel.models.some((item) => item.name === normalizedName) ? encodeChannelModel(channel.id, normalizedName) : "";
     }
-    const channel = channels.find((item) => item.models.some((entry) => entry.name === model)) || channels[0];
-    return channel && channel.models.some((item) => item.name === model) ? encodeChannelModel(channel.id, model) : model;
+    const officialName = canonicalOrangeMoonVideoModel(model);
+    const channel = channels.find((item) => item.models.some((entry) => entry.name === (item.provider === ORANGE_MOON_PROVIDER ? officialName : model))) || channels[0];
+    const normalizedName = channel?.provider === ORANGE_MOON_PROVIDER ? officialName : model;
+    return channel && channel.models.some((item) => item.name === normalizedName) ? encodeChannelModel(channel.id, normalizedName) : model;
 }
 
 export function resolveModelChannel(config: AiConfig, value: string) {
@@ -327,6 +341,7 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
+        provider: channel.provider,
     };
 }
 
@@ -340,11 +355,12 @@ function normalizeChannels(config: AiConfig) {
             models: normalizeChannelModels(channel.models),
         }),
     );
-    if (!channels.length) {
-        channels.push(
+    const customChannels = channels.filter((channel) => channel.id !== ORANGE_MOON_CHANNEL_ID && channel.provider !== ORANGE_MOON_PROVIDER);
+    if (!customChannels.length) {
+        customChannels.push(
             createModelChannel({
                 id: "default",
-                name: "默认渠道",
+                name: "自定义渠道",
                 baseUrl: config.baseUrl || defaultConfig.baseUrl,
                 apiKey: config.apiKey || "",
                 apiFormat: config.apiFormat || defaultConfig.apiFormat,
@@ -352,7 +368,23 @@ function normalizeChannels(config: AiConfig) {
             }),
         );
     }
-    return channels;
+    return [createOrangeMoonChannel(), ...customChannels];
+}
+
+export function isOrangeMoonManagedConfig(config: Pick<AiConfig, "provider">) {
+    return config.provider === ORANGE_MOON_PROVIDER;
+}
+
+export function createOrangeMoonChannel(): ModelChannel {
+    return {
+        id: ORANGE_MOON_CHANNEL_ID,
+        name: "橙月官方",
+        baseUrl: ORANGE_MOON_GATEWAY_URL,
+        apiKey: "",
+        apiFormat: "openai",
+        provider: ORANGE_MOON_PROVIDER,
+        models: ORANGE_MOON_MODELS.map((model) => ({ ...model })),
+    };
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
@@ -365,6 +397,22 @@ function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
 
 function uniqueModelOptions(models: string[]) {
     return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean)));
+}
+
+function visibleModelOptions(channels: ModelChannel[], capability?: ModelCapability) {
+    return uniqueModelOptions(
+        channels.flatMap((channel) =>
+            channel.models
+                .filter((model) => !capability || model.capability === capability)
+                .filter((model) => channel.provider === ORANGE_MOON_PROVIDER || !equivalentOrangeMoonModelName(model.name))
+                .map((model) => encodeChannelModel(channel.id, model.name)),
+        ),
+    );
+}
+
+function equivalentOrangeMoonModelName(name: string) {
+    const canonicalName = canonicalOrangeMoonVideoModel(name);
+    return ORANGE_MOON_MODEL_NAMES.has(canonicalName) ? canonicalName : "";
 }
 
 export function buildApiUrl(baseUrl: string, path: string) {

@@ -8,6 +8,7 @@ import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
+import { ORANGE_MOON_PROVIDER } from "@/lib/orange-moon-provider";
 import { createModelChannel, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 
 type ModelGroup = {
@@ -73,7 +74,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     };
 
     const finishConfig = () => {
-        const ready = config.channels.some((channel) => channel.baseUrl.trim() && channel.apiKey.trim() && channel.models.length);
+        const ready = config.channels.some((channel) => channel.models.length && (channel.provider === ORANGE_MOON_PROVIDER || (channel.baseUrl.trim() && channel.apiKey.trim())));
         setConfigDialogOpen(false);
         if (!ready) return;
         message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
@@ -89,6 +90,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     };
 
     const deleteChannel = (id: string) => {
+        if (config.channels.find((channel) => channel.id === id)?.provider === ORANGE_MOON_PROVIDER) return;
         if (config.channels.length <= 1) {
             message.warning("至少保留一个渠道");
             return;
@@ -163,7 +165,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                         children: (
                             <div>
                                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                                    <div className="text-xs text-stone-500">每个渠道选择一个协议并拉取模型，为每个模型指定能力（生图/视频/文本/音频），并可自定义调用脚本。</div>
+                                    <div className="text-xs text-stone-500">橙月官方模型由本地安全网关托管密钥；自定义渠道仍可配置协议、模型能力和调用脚本。</div>
                                     <Button type="primary" icon={<Plus className="size-4" />} onClick={addChannel}>
                                         新增渠道
                                     </Button>
@@ -174,14 +176,20 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                             <div className="min-w-0">
                                                 <div className="truncate text-sm font-semibold">{channel.name || "未命名渠道"}</div>
                                                 <div className="mt-1 truncate text-xs text-stone-500">
-                                                    {apiFormatLabel(channel.apiFormat)} · {channel.models.length} 个模型 · {channel.baseUrl || "未填写接口地址"}
+                                                    {channel.provider === ORANGE_MOON_PROVIDER ? `服务端托管 · ${channel.models.length} 个模型 · API Key 不下发浏览器` : `${apiFormatLabel(channel.apiFormat)} · ${channel.models.length} 个模型 · ${channel.baseUrl || "未填写接口地址"}`}
                                                 </div>
                                             </div>
                                             <div className="flex shrink-0 gap-2">
-                                                <Button size="small" icon={<Pencil className="size-3.5" />} onClick={() => setEditingChannelId(channel.id)}>
-                                                    编辑
-                                                </Button>
-                                                <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={() => deleteChannel(channel.id)} />
+                                                {channel.provider === ORANGE_MOON_PROVIDER ? (
+                                                    <span className="text-xs text-stone-500">内置渠道</span>
+                                                ) : (
+                                                    <>
+                                                        <Button size="small" icon={<Pencil className="size-3.5" />} onClick={() => setEditingChannelId(channel.id)}>
+                                                            编辑
+                                                        </Button>
+                                                        <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={() => deleteChannel(channel.id)} />
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
@@ -336,6 +344,7 @@ function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
         baseUrl: channels[0]?.baseUrl || config.baseUrl,
         apiKey: channels[0]?.apiKey || config.apiKey,
         apiFormat: channels[0]?.apiFormat || config.apiFormat,
+        provider: channels[0]?.provider || config.provider,
     };
     return {
         ...next,

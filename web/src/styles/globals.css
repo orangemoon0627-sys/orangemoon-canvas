@@ -141,6 +141,54 @@
 }
 
 @layer utilities {
+    .app-workspace-container {
+        container-type: inline-size;
+    }
+
+    .workbench-main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        overflow-y: auto;
+    }
+
+    .workbench-history {
+        display: none;
+    }
+
+    .workbench-stage {
+        container-type: inline-size;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+    }
+
+    .workbench-panel {
+        min-width: 0;
+    }
+
+    @container (min-width: 852px) {
+        .workbench-panel {
+            min-height: 0;
+            overflow-y: auto;
+        }
+    }
+
+    @container (min-width: 900px) {
+        .workbench-main {
+            grid-template-columns: 300px minmax(0, 1fr);
+            overflow: hidden;
+        }
+
+        .workbench-history {
+            display: block;
+        }
+    }
+
+    @container (min-width: 1280px) {
+        .workbench-main {
+            grid-template-columns: 320px minmax(0, 1fr);
+        }
+    }
+
     .ai-title-aurora {
         background: linear-gradient(90deg, #111827 0%, #111827 36%, #6b7280 54%, #111827 72%, #111827 100%);
         background-size: 220% 100%;

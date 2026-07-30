@@ -1,14 +1,13 @@
 <p align="center">
-  <img src="web/public/logo.svg" width="96" alt="infinite-canvas logo">
+  <img src="web/public/logo.svg" width="96" alt="橙月画布 logo">
 </p>
 
-<h1 align="center">无限画布 (infinite-canvas)</h1>
+<h1 align="center">橙月画布</h1>
 
 <p align="center">
   <a href="https://linux.do/"><img src="https://img.shields.io/badge/Linux.do-Community-2b6de8?style=flat-square" alt="Linux.do"></a>
-  <a href="https://render.com/deploy?repo=https://github.com/basketikun/infinite-canvas"><img src="https://img.shields.io/badge/Render-Deploy-46e3b7?style=flat-square&logo=render&logoColor=111111" alt="Deploy to Render"></a>
-  <a href="https://github.com/basketikun/infinite-canvas"><img src="https://img.shields.io/github/stars/basketikun/infinite-canvas?style=flat-square&logo=github" alt="GitHub stars"></a>
-  <a href="https://github.com/basketikun/infinite-canvas/tags"><img src="https://img.shields.io/github/v/tag/basketikun/infinite-canvas?style=flat-square&label=version" alt="Version"></a>
+  <a href="https://github.com/orangemoon0627-sys/orangemoon-canvas"><img src="https://img.shields.io/badge/GitHub-Source-181717?style=flat-square&logo=github" alt="GitHub source"></a>
+  <a href="https://github.com/orangemoon0627-sys/orangemoon-canvas/tags"><img src="https://img.shields.io/github/v/tag/orangemoon0627-sys/orangemoon-canvas?style=flat-square&label=version" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-f97316?style=flat-square" alt="License"></a>
   <a href="https://vite.dev/"><img src="https://img.shields.io/badge/Vite-7-646cff?style=flat-square&logo=vite&logoColor=white" alt="Vite"></a>
   <a href="https://reactrouter.com/"><img src="https://img.shields.io/badge/React_Router-7-ca4245?style=flat-square&logo=reactrouter&logoColor=white" alt="React Router"></a>
@@ -19,13 +18,13 @@
 </p>
 
 <p align="center">
-  <a href="docs/content/docs/overview/quick-start.mdx">快速开始</a> · <a href="docs/content/docs/overview/features.mdx">功能介绍</a> · <a href="docs/content/docs/overview/render.mdx">Render 部署</a> · <a href="docs/content/docs/overview/docker.mdx">Docker 部署</a> · <a href="docs/content/docs/canvas/canvas-node-manual.mdx">画布节点操作手册</a> · <a href="docs/content/docs/canvas/canvas-shortcuts.mdx">画布快捷键</a> · <a href="CLA.md">贡献者协议</a> · <a href="SECURITY.md">漏洞提交</a> · <a href="docs/content/docs/progress/todo.mdx">待办事项</a> · <a href="canvas-agent/README.md">本地 Canvas Agent</a> · <a href="plugins/infinite-canvas">Codex app 插件</a>
+  <a href="docs/content/docs/overview/quick-start.mdx">快速开始</a> · <a href="docs/content/docs/overview/features.mdx">功能介绍</a> · <a href="docs/content/docs/overview/docker.mdx">Docker 部署</a> · <a href="deploy/standalone/README.md">生产部署</a> · <a href="docs/content/docs/canvas/canvas-node-manual.mdx">画布节点操作手册</a> · <a href="docs/content/docs/canvas/canvas-shortcuts.mdx">画布快捷键</a> · <a href="CLA.md">贡献者协议</a> · <a href="SECURITY.md">漏洞提交</a> · <a href="canvas-agent/README.md">Canvas Agent</a>
 </p>
 
-无限画布是一款面向图片创作的开源工作台。它把画布编排、AI 图片生成、参考图编辑、对话助手、提示词库和素材沉淀放在同一个界面里，适合用来探索视觉方案并连续迭代图片结果。
+橙月画布是一款面向图片与视频创作的节点式 AI 工作台。本分支基于 [basketikun/infinite-canvas](https://github.com/basketikun/infinite-canvas) 开发，保留原项目作者、仓库标识与 AGPL-3.0 开源许可；产品界面使用“橙月画布”品牌。
 
 > [!CAUTION]
-> 项目目前处于开发阶段，不保证历史数据兼容。各种本地存储格式都可能直接调整，欢迎关注后续更新，当前更适合个人/本地部署，不建议直接公网多人共用。
+> 项目目前处于开发阶段，不保证历史数据兼容。账户、钱包、人工充值和官方模型计费底座已可用于本地及内部试用，但画布资产仍保存在浏览器，队列、对象存储、正式商户支付和生产监控尚未完成，不建议直接作为公网收费服务使用。
 >
 > 如果你需要稳定维护自己的分支，建议自行 fork 后独立开发。二次开发与 PR 请保留原作者信息和前端页面标识。
 
@@ -44,8 +43,11 @@
 
 ## 核心功能
 
-- 无限画布：多画布项目、节点拖拽缩放、连线、小地图、撤销重做、导入导出。
-- AI 创作：浏览器前台直连你配置的 OpenAI 兼容接口，支持文生图、图生图、参考图编辑、文本问答、音频和视频生成。
+- 橙月画布：多画布项目、节点拖拽缩放、连线、小地图、撤销重做、导入导出。
+- AI 创作：支持文生图、图生图、参考图编辑、文本问答、音频和视频生成；自定义渠道可由浏览器直连，橙月官方渠道统一经过服务端计费网关。
+- 官方模型：内置 Image 2、18 个 Seedance 2.0 上游模型（21 个可选分辨率规格）和 MiniMax Speech 2.8 HD/Turbo，供应商密钥不下发浏览器。
+- 平台账户：支持邮箱注册登录、HttpOnly 会话、积分钱包、账户资产、使用记录与账本流水；管理员可审核人工充值、管理用户和执行带审计记录的积分调账。
+- 云端 Agent：登录后可直接使用 `GPT-5.6 Terra` 理解需求、读取画布并组合节点；每个账户独立会话，节点写操作在网页中审核后执行。
 - 画布助手：围绕选中节点和上游节点对话、生图，并把结果插回画布。
 - 本地 Agent：通过本机 Canvas Agent 连接 Codex / Claude Code，让 Agent 通过 MCP 操作当前画布；
 - Codex App 插件：提供 Codex app 插件，安装后会自动注册 MCP 并尝试拉起本地 Agent。
@@ -59,29 +61,42 @@
 
 ## 快速开始
 
-AI API Key、Base URL、画布、素材和生成记录默认保存在浏览器本地。
+自定义渠道的 AI API Key、Base URL、画布项目和媒体文件本体默认保存在浏览器本地。橙月官方渠道密钥只配置在平台 API；账户、钱包、充值订单、账本、账户资产元数据和官方生成任务保存在 PostgreSQL。
 
 ### 本地开发
 
 ```bash
-git clone git@github.com:basketikun/infinite-canvas.git
-cd infinite-canvas
-cd web
+git clone https://github.com/orangemoon0627-sys/orangemoon-canvas.git
+cd orangemoon-canvas
+docker compose -f docker-compose.local.yml up -d postgres
+cp platform-api/.env.example platform-api/.env
+
+# 终端 1：平台 API
+cd platform-api
+npm ci
+npm run db:migrate
+npm run build
+npm start
+
+# 终端 2：Web
+cd ../web
 bun install
-bun run dev
+bun run dev -- --port 4311
 ```
+
+本地访问 `http://127.0.0.1:4311`。开发配置允许首个注册用户成为管理员；生产环境必须关闭该开关并通过受控命令创建管理员。
 
 ### Docker 运行
 
 ```bash
-git clone git@github.com:basketikun/infinite-canvas.git
-cd infinite-canvas
+git clone https://github.com/orangemoon0627-sys/orangemoon-canvas.git
+cd orangemoon-canvas
 docker compose up -d
 ```
 
-运行后默认端口3000，可访问 `http://localhost:3000`。
+Compose 会启动 PostgreSQL、一次性迁移、平台 API、云端 Canvas Agent 和 nginx Web 应用。运行后默认端口 3000，可访问 `http://localhost:3000`。启用云端画布对话需要在服务端提供 `OPENAI_BASE_URL`、`OPENAI_API_KEY`，模型默认是 `gpt-5.6-terra`。
 
-首次打开后进入右上角配置，填入自己的 OpenAI 兼容 `Base URL` 和 `API Key`。
+自定义渠道可在右上角配置 OpenAI 兼容 `Base URL` 和 `API Key`。官方渠道需要在服务端环境变量或密钥管理服务中配置 MetaJing/MiniMax 密钥。
 
 如果默认的OpenAI接口调用方式与您的API不同，可自定义生图/视频脚本调用。
 

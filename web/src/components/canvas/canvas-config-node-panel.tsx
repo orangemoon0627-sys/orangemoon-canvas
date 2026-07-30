@@ -33,7 +33,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
     const canGenerate = hasComposerContent || (mode === "audio" ? inputSummary.textCount > 0 : hasAnyInput);
 
     return (
-        <div className="flex h-full w-full cursor-move flex-col px-3 pb-3 pt-7 text-sm" style={{ color: theme.node.text }} onWheel={(event) => event.stopPropagation()}>
+        <div className="flex h-full w-full cursor-move flex-col p-3 text-sm" style={{ color: theme.node.text }} onWheel={(event) => event.stopPropagation()}>
             <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="shrink-0 text-sm font-semibold">生成配置</div>
                 <div className="cursor-default" onMouseDown={(event) => event.stopPropagation()}>
@@ -96,19 +96,43 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
             </div>
 
             <div className={`mb-2 grid min-w-0 cursor-default items-center gap-2 ${mode === "image" || mode === "video" || mode === "audio" ? "grid-cols-[minmax(0,1fr)_148px]" : "grid-cols-1"}`} onMouseDown={(event) => event.stopPropagation()}>
-                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability={mode} onMissingConfig={() => openConfigDialog(true)} fullWidth />
+                <ModelPicker
+                    className="canvas-compact-control !h-8 !rounded-md !px-2 !text-xs !shadow-none"
+                    config={config}
+                    value={config.model}
+                    onChange={(model) => onConfigChange(node.id, { model })}
+                    capability={mode}
+                    onMissingConfig={() => openConfigDialog(true)}
+                    fullWidth
+                />
                 {mode === "video" ? (
-                    <CanvasVideoSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
+                    <CanvasVideoSettingsPopover
+                        config={config}
+                        placement="topRight"
+                        buttonClassName="canvas-compact-control !h-8 !w-full !justify-start !rounded-md !px-2 !text-xs"
+                        onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))}
+                    />
                 ) : mode === "image" ? (
-                    <CanvasImageSettingsPopover config={config} placement="topRight" autoAdjustOverflow={false} buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })} />
+                    <CanvasImageSettingsPopover
+                        config={config}
+                        placement="topRight"
+                        autoAdjustOverflow={false}
+                        buttonClassName="canvas-compact-control !h-8 !w-full !justify-start !rounded-md !px-2 !text-xs"
+                        onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })}
+                    />
                 ) : mode === "audio" ? (
-                    <CanvasAudioSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))} />
+                    <CanvasAudioSettingsPopover
+                        config={config}
+                        placement="topRight"
+                        buttonClassName="canvas-compact-control !h-8 !w-full !justify-start !rounded-md !px-2 !text-xs"
+                        onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))}
+                    />
                 ) : null}
             </div>
 
             <Button
                 type="primary"
-                className="mt-auto !h-9 !w-full !cursor-pointer !rounded-lg"
+                className="mt-auto !h-8 !w-full !cursor-pointer !rounded-md"
                 danger={isRunning}
                 disabled={!isRunning && !canGenerate}
                 onMouseDown={(event) => event.stopPropagation()}
@@ -135,7 +159,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
 
 function InputChip({ label, value, style }: { label: string; value: string; style: CSSProperties }) {
     return (
-        <div className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px]" style={style}>
+        <div className="inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-[10px]" style={style}>
             <span>{label}</span>
             <span className="font-medium">{value}</span>
         </div>
@@ -146,11 +170,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
     const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
     const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "video" ? defaultConfig.videoModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
     const currentModel = node.metadata?.model;
-    const model = currentModel && modelMatchesCapability(globalConfig, currentModel, mode)
-        ? currentModel
-        : defaultModel && modelMatchesCapability(globalConfig, defaultModel, mode)
-            ? defaultModel
-            : fallbackModel;
+    const model = currentModel && modelMatchesCapability(globalConfig, currentModel, mode) ? currentModel : defaultModel && modelMatchesCapability(globalConfig, defaultModel, mode) ? defaultModel : fallbackModel;
     return {
         ...globalConfig,
         model,

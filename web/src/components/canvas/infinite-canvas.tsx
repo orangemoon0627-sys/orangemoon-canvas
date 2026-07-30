@@ -180,6 +180,7 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
     return (
         <div
             ref={containerRef}
+            data-canvas-root
             className="relative h-full w-full cursor-grab select-none overflow-hidden"
             style={{ background: theme.canvas.background }}
             onPointerDown={handlePointerDown}
@@ -206,16 +207,16 @@ function CanvasGrid({ viewport, mode }: { viewport: ViewportTransform; mode: Can
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     if (mode === "blank") return null;
 
-    const gridSize = 48 * viewport.k;
+    const gridSize = (mode === "dots" ? 24 : 48) * viewport.k;
     const x = viewport.x % gridSize;
     const y = viewport.y % gridSize;
-    const dotSize = viewport.k < 0.12 ? 0.8 : 1.15;
+    const dotSize = viewport.k < 0.12 ? 0.65 : 0.9;
     const backgroundImage =
         mode === "dots" ? `radial-gradient(circle, ${theme.canvas.dot} ${dotSize}px, transparent ${dotSize + 0.2}px)` : `linear-gradient(${theme.canvas.line} 1px, transparent 1px), linear-gradient(90deg, ${theme.canvas.line} 1px, transparent 1px)`;
 
     return (
         <div
-            className="pointer-events-none absolute inset-0 opacity-40"
+            className={`pointer-events-none absolute inset-0 ${mode === "dots" ? "opacity-55" : "opacity-25"}`}
             style={{
                 backgroundImage,
                 backgroundSize: `${gridSize}px ${gridSize}px`,

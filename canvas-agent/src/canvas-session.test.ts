@@ -43,6 +43,61 @@ test("画布写操作只发送给当前激活网页", async (t) => {
     assert.deepEqual(await result, { ok: true });
 });
 
+test("单个或选中的文本节点会返回完整可编辑内容", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    const content = "完整正文".repeat(120);
+    session.updateState(
+        {
+            ...snapshot("canvas-first"),
+            nodes: [{ id: "text-1", type: "text", title: "故事梗概", position: { x: 0, y: 0 }, width: 320, height: 240, metadata: { content } }],
+            selectedNodeIds: ["text-1"],
+        },
+        "first",
+    );
+
+    const state = await session.callTool("canvas_get_state", {});
+    const compactContent = ((field(state, "nodes") as Array<Record<string, unknown>>)[0].metadata as Record<string, unknown>).content;
+    assert.notEqual(compactContent, content);
+
+    const selected = await session.callTool("canvas_get_selection", {});
+    const selectedContent = (((field(selected, "nodes") as Array<Record<string, unknown>>)[0].metadata as Record<string, unknown>).content);
+    assert.equal(selectedContent, content);
+
+    const result = await session.callTool("canvas_get_node", { id: "text-1" });
+    const node = field(result, "node") as Record<string, unknown>;
+    assert.equal((node.metadata as Record<string, unknown>).content, content);
+});
+
+test("只修改文本节点标题时不会覆盖正文", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+
+    const result = session.callTool("canvas_update_node_text", { id: "text-1", title: "第三幕" });
+    const call = client.event("tool_call");
+    const op = ((field(call, "input") as Record<string, unknown>).ops as Array<Record<string, unknown>>)[0];
+    assert.deepEqual(op, { type: "update_node", id: "text-1", patch: { title: "第三幕" } });
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
+});
+
+test("修改文本节点正文时保留标题并拒绝空更新", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+
+    const result = session.callTool("canvas_update_node_text", { id: "text-1", text: "迭代后的正文" });
+    const call = client.event("tool_call");
+    const op = ((field(call, "input") as Record<string, unknown>).ops as Array<Record<string, unknown>>)[0];
+    assert.deepEqual(op, { type: "update_node", id: "text-1", metadata: { content: "迭代后的正文", status: "success" } });
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
+
+    await assert.rejects(session.callTool("canvas_update_node_text", { id: "text-1" }), /至少需要提供 text 或 title/);
+});
+
 test("当前 turn 的图片附件可在发起标签页画布创建图片节点", async (t) => {
     const session = new CanvasSession();
     const first = connect(session, "first");
@@ -228,6 +283,33 @@ test("a bound client remains the tool target while focus changes", async (t) => 
 
     session.releaseClient("first");
     assert.equal(field(await session.callTool("canvas_get_state", {}), "projectId"), "canvas-second");
+});
+
+test("a turn bound to a project rejects navigation and a switched canvas", async (t) => {
+    const session = new CanvasSession();
+    const first = connect(session, "first");
+    t.after(() => first.close());
+    session.updateState(snapshot("canvas-first"), "first");
+    session.bindClient("first", "canvas-first");
+
+    await assert.rejects(session.callTool("site_navigate", { path: "/canvas/canvas-second" }), /锁定画布 canvas-first/);
+    session.updateState(snapshot("canvas-second"), "first");
+    await assert.rejects(session.callTool("canvas_get_state", {}), /只允许操作画布 canvas-first/);
+    assert.equal(first.event("tool_call"), undefined);
+});
+
+test("project-bound tool calls include the expected project id", async (t) => {
+    const session = new CanvasSession();
+    const first = connect(session, "first");
+    t.after(() => first.close());
+    session.updateState(snapshot("canvas-first"), "first");
+    session.bindClient("first", "canvas-first");
+
+    const result = session.callTool("canvas_create_text_node", { text: "locked" });
+    const call = first.event("tool_call");
+    assert.equal(field(call, "projectId"), "canvas-first");
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
 });
 
 test("closing the bound client falls back to the active client", async (t) => {

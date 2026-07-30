@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 
 import { useAgentStore } from "@/stores/use-agent-store";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import { generationLoadingMetadata } from "@/lib/canvas/canvas-generation-progress";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import type { CanvasConnection, CanvasNodeData, ContextMenuState, ViewportTransform } from "@/types/canvas";
 
@@ -36,6 +37,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
         params;
     const setAgentCanvasContext = useAgentStore((state) => state.setCanvasContext);
     const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
+    const publishedContextRef = useRef<ReturnType<typeof createAgentCanvasContext> | null>(null);
     const projectTitle = title || "未命名画布";
 
     const agentSnapshot = useMemo<CanvasAgentSnapshot>(() => ({ projectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }), [connections, projectTitle, nodes, projectId, selectedNodeIds, viewport]);
@@ -44,9 +46,31 @@ export function useAgentBridge(params: AgentBridgeParams) {
             const safeOps = Array.isArray(ops) ? ops.filter((op) => op?.type) : [];
             const before = { projectId, title: projectTitle, nodes: nodesRef.current, connections: connectionsRef.current, selectedNodeIds: Array.from(selectedNodeIdsRef.current), viewport: viewportRef.current };
             const generationOps = safeOps.filter((op): op is Extract<CanvasAgentOp, { type: "run_generation" }> => op.type === "run_generation" && Boolean(op.nodeId));
+            const generationByNodeId = new Map(generationOps.map((op) => [op.nodeId, op]));
+            const addedGenerationTargets = new Set<string>();
+            const structuralOps = safeOps
+                .filter((op) => op.type !== "run_generation")
+                .map((op) => {
+                    if (op.type !== "add_node" || !op.id) return op;
+                    const generation = generationByNodeId.get(op.id);
+                    if (!generation) return op;
+                    addedGenerationTargets.add(op.id);
+                    const mode = generation.mode || op.metadata?.generationMode || "image";
+                    return { ...op, metadata: { ...generationLoadingMetadata(mode, { ...op.metadata, prompt: generation.prompt || op.metadata?.prompt }), generationStage: "已确认，正在创建任务" } };
+                });
+            for (const generation of generationOps) {
+                if (addedGenerationTargets.has(generation.nodeId)) continue;
+                const target = before.nodes.find((node) => node.id === generation.nodeId);
+                const mode = generation.mode || target?.metadata?.generationMode || "image";
+                structuralOps.push({
+                    type: "update_node",
+                    id: generation.nodeId,
+                    metadata: { ...generationLoadingMetadata(mode, { ...target?.metadata, prompt: generation.prompt || target?.metadata?.prompt }), generationStage: "已确认，正在创建任务" },
+                });
+            }
             const next = applyCanvasAgentOps(
                 before,
-                safeOps.filter((op) => op.type !== "run_generation"),
+                structuralOps,
             );
             nodesRef.current = next.nodes;
             connectionsRef.current = next.connections;
@@ -60,7 +84,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
             setViewport(next.viewport);
             setContextMenu(null);
             if (generationOps.length) {
-                queueMicrotask(() =>
+                scheduleAfterCanvasPaint(() =>
                     generationOps.forEach((op) => {
                         const target = nodesRef.current.find((node) => node.id === op.nodeId);
                         const prompt = op.prompt?.trim() ? op.prompt : (target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
@@ -88,10 +112,33 @@ export function useAgentBridge(params: AgentBridgeParams) {
         return { ...agentUndoSnapshot, projectId, title: projectTitle };
     }, [agentUndoSnapshot, projectTitle, projectId]);
 
+    const publishedContext = useMemo(() => createAgentCanvasContext(agentSnapshot, applyAgentOps, undoAgentOps, Boolean(agentUndoSnapshot)), [agentSnapshot, applyAgentOps, agentUndoSnapshot, undoAgentOps]);
+
     useEffect(() => {
-        setAgentCanvasContext({ snapshot: agentSnapshot, applyOps: applyAgentOps, undoOps: undoAgentOps, canUndo: Boolean(agentUndoSnapshot) });
-        return () => setAgentCanvasContext(null);
-    }, [agentSnapshot, applyAgentOps, agentUndoSnapshot, setAgentCanvasContext, undoAgentOps]);
+        publishedContextRef.current = publishedContext;
+        setAgentCanvasContext(publishedContext);
+    }, [publishedContext, setAgentCanvasContext]);
+
+    useEffect(
+        () => () => {
+            // Only the bridge instance that still owns the store value may clear it.
+            // Snapshot updates must never publish a transient null/default canvas.
+            if (useAgentStore.getState().canvasContext === publishedContextRef.current) setAgentCanvasContext(null);
+        },
+        [setAgentCanvasContext],
+    );
 
     return { applyAgentOps };
+}
+
+function createAgentCanvasContext(snapshot: CanvasAgentSnapshot, applyOps: (ops?: CanvasAgentOp[]) => CanvasAgentSnapshot, undoOps: () => CanvasAgentSnapshot | null, canUndo: boolean) {
+    return { snapshot, applyOps, undoOps, canUndo };
+}
+
+function scheduleAfterCanvasPaint(callback: () => void) {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(callback);
+        return;
+    }
+    setTimeout(callback, 0);
 }
