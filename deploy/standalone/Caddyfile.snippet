@@ -18,10 +18,7 @@ canvas.154-12-85-189.sslip.io {
 	}
 
 	log {
-		output file /var/log/caddy/orangemoon-canvas-access.log {
-			roll_size 20MB
-			roll_keep 5
-		}
+		output stdout
 		format console
 	}
 }
