@@ -155,7 +155,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
     const insufficientCredits = Boolean(generationQuote && BigInt(generationQuote.totalMilliCredits) > BigInt(platformUser?.wallet?.availableMilliCredits || "0"));
     const loadThreads = useCallback(
         async (skipHistory = false) => {
-            if (!connectedRef.current && !useAgentStore.getState().connected) return false;
+            if (!connectedRef.current) return false;
             const sequence = ++loadThreadsSequenceRef.current;
             setAgentState({ loadingThreads: true });
             setHistoryLoadError("");
@@ -302,6 +302,8 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
 
     useEffect(() => {
         if (!enabled || !token.trim()) return;
+        connectedRef.current = false;
+        setAgentState({ connected: false, activity: "连接中", connectError: "" });
         if (!MANAGED_AGENT) {
             localStorage.setItem("canvas-agent-url", endpoint);
             localStorage.setItem("canvas-agent-token", token);
@@ -404,6 +406,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
             source.close();
             connectedRef.current = false;
             loadThreadsSequenceRef.current += 1;
+            setAgentState({ connected: false, activity: useAgentStore.getState().enabled ? "连接中" : "离线" });
         };
     }, [enabled, endpoint, loadThreads, message, refreshWallet, setAgentState, token]);
 
@@ -424,7 +427,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
         const text = prompt.trim();
         const files = attachments;
         const requestPrompt = promptWithAttachments(text, files);
-        if (!connected || !requestPrompt || sending || waiting) return;
+        if (!connected || !connectedRef.current || !requestPrompt || sending || waiting) return;
         const context = canvasContextRef.current;
         const projectId = currentAgentProjectId(context);
         if (!context && /^\/canvas\/[^/]+/.test(window.location.pathname)) {

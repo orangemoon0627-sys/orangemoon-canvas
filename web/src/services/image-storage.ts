@@ -2,6 +2,7 @@ import localforage from "localforage";
 
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
+import { downloadAccountMedia, queueAccountMediaUpload } from "@/services/account-media";
 
 export type UploadedImage = {
     url: string;
@@ -19,6 +20,7 @@ export async function uploadImage(input: string | Blob): Promise<UploadedImage> 
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
     const storageKey = `image:${nanoid()}`;
     await store.setItem(storageKey, blob);
+    void queueAccountMediaUpload(storageKey, blob).catch(() => undefined);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     const meta = await readImageMeta(url);
@@ -29,7 +31,7 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
-    const blob = await store.getItem<Blob>(storageKey);
+    const blob = await loadImageBlob(storageKey);
     if (!blob) return fallback;
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
@@ -37,14 +39,27 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
 }
 
 export async function getImageBlob(storageKey: string) {
-    return store.getItem<Blob>(storageKey);
+    return loadImageBlob(storageKey);
 }
 
 export async function setImageBlob(storageKey: string, blob: Blob) {
     await store.setItem(storageKey, blob);
+    void queueAccountMediaUpload(storageKey, blob).catch(() => undefined);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
+}
+
+async function loadImageBlob(storageKey: string) {
+    const local = await store.getItem<Blob>(storageKey);
+    if (local) return local;
+    try {
+        const cloud = await downloadAccountMedia(storageKey);
+        await store.setItem(storageKey, cloud);
+        return cloud;
+    } catch {
+        return null;
+    }
 }
 
 export async function imageToDataUrl(image: { url?: string; dataUrl?: string; storageKey?: string }) {
@@ -74,6 +89,10 @@ export async function cleanupUnusedImages(usedData: unknown) {
 }
 
 export function collectImageStorageKeys(value: unknown, keys = new Set<string>()) {
+    if (typeof value === "string") {
+        if (/^image:[A-Za-z0-9_-]{8,120}$/.test(value)) keys.add(value);
+        return keys;
+    }
     if (!value || typeof value !== "object") return keys;
     if ("storageKey" in value && typeof value.storageKey === "string" && value.storageKey.startsWith("image:")) keys.add(value.storageKey);
     Object.values(value).forEach((item) => (Array.isArray(item) ? item.forEach((child) => collectImageStorageKeys(child, keys)) : collectImageStorageKeys(item, keys)));

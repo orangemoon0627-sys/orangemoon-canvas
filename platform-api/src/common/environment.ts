@@ -7,6 +7,7 @@ export function validateEnvironment(input: Record<string, unknown>) {
     if (!databaseUrl || !databaseUrl.startsWith("postgresql://")) throw new Error("DATABASE_URL 必须是 PostgreSQL 连接地址");
     parseInteger(input.PLATFORM_PORT, 17400, 1, 65535, "PLATFORM_PORT");
     parseInteger(input.PLATFORM_BODY_LIMIT_MB, 128, 1, 128, "PLATFORM_BODY_LIMIT_MB");
+    parseInteger(input.PLATFORM_MEDIA_MAX_FILE_MB, 64, 1, 128, "PLATFORM_MEDIA_MAX_FILE_MB");
     parseInteger(input.PLATFORM_MAX_CONCURRENT_GENERATIONS, 4, 1, 32, "PLATFORM_MAX_CONCURRENT_GENERATIONS");
     parseInteger(input.PLATFORM_SESSION_DAYS, 30, 1, 365, "PLATFORM_SESSION_DAYS");
     parseNumber(input.PLATFORM_METAJING_USD_TO_CNY, 1, 0.01, 100, "PLATFORM_METAJING_USD_TO_CNY");
@@ -26,6 +27,14 @@ export function platformPort() {
 
 export function platformBodyLimitBytes() {
     return parseInteger(process.env.PLATFORM_BODY_LIMIT_MB, 128, 1, 128, "PLATFORM_BODY_LIMIT_MB") * 1024 * 1024;
+}
+
+export function platformMediaMaxFileBytes() {
+    return parseInteger(process.env.PLATFORM_MEDIA_MAX_FILE_MB, 64, 1, 128, "PLATFORM_MEDIA_MAX_FILE_MB") * 1024 * 1024;
+}
+
+export function platformMediaDir() {
+    return environmentText("PLATFORM_MEDIA_DIR", "/var/lib/orangemoon/media");
 }
 
 export function platformMaxConcurrentGenerations() {

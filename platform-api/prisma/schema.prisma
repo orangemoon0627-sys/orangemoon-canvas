@@ -75,6 +75,8 @@ model User {
   reviewedRecharges  RechargeOrder[]     @relation("RechargeReviewer")
   generationJobs     GenerationJob[]
   assets             Asset[]
+  canvasProjects     CanvasProject[]
+  canvasMedia        CanvasMedia[]
   agentThreads       AgentThread[]
   agentTurns         AgentTurn[]
   ledgerTransactions LedgerTransaction[]
@@ -241,6 +243,38 @@ model Asset {
   @@index([generationJobId])
 }
 
+model CanvasProject {
+  id              String    @id @default(cuid())
+  publicId        String
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           String
+  data            Json
+  clientCreatedAt DateTime
+  clientUpdatedAt DateTime
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, publicId])
+  @@index([userId, deletedAt, clientUpdatedAt])
+}
+
+model CanvasMedia {
+  id         String   @id @default(cuid())
+  storageKey String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mimeType   String
+  bytes      BigInt
+  checksum   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, storageKey])
+  @@index([userId, updatedAt])
+}
+
 model AgentThread {
   id           String   @id @default(cuid())
   publicId     String   @unique
@@ -266,19 +300,19 @@ model AgentTurn {
   user                 User            @relation(fields: [userId], references: [id], onDelete: Restrict)
   projectId            String
   threadId             String
-  model                 String
-  status                AgentTurnStatus @default(RESERVED)
+  model                String
+  status               AgentTurnStatus @default(RESERVED)
   reservedMilliCredits BigInt
   chargedMilliCredits  BigInt          @default(0)
-  inputTokens           BigInt          @default(0)
-  cachedInputTokens     BigInt          @default(0)
-  outputTokens          BigInt          @default(0)
-  totalTokens           BigInt          @default(0)
-  priceSnapshot         Json
-  error                 String?
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-  settledAt             DateTime?
+  inputTokens          BigInt          @default(0)
+  cachedInputTokens    BigInt          @default(0)
+  outputTokens         BigInt          @default(0)
+  totalTokens          BigInt          @default(0)
+  priceSnapshot        Json
+  error                String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  settledAt            DateTime?
 
   @@index([userId, createdAt])
   @@index([status, createdAt])

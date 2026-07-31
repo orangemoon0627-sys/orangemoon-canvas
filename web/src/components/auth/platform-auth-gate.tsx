@@ -4,6 +4,8 @@ import { App, Button, ConfigProvider, Form, Input, Segmented, Spin, theme as ant
 
 import { useAuthStore } from "@/stores/use-auth-store";
 import { useAssetStore } from "@/stores/use-asset-store";
+import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { bindAccountMediaOwner } from "@/services/account-media";
 
 type AuthForm = { email: string; password: string; displayName?: string; confirmPassword?: string };
 
@@ -30,21 +32,23 @@ export function PlatformAuthGate({ children }: { children: ReactNode }) {
         );
     }
     if (status === "anonymous") return <AuthScreen />;
-    return userId ? <AccountAssetGate userId={userId}>{children}</AccountAssetGate> : null;
+    return userId ? <AccountDataGate userId={userId}>{children}</AccountDataGate> : null;
 }
 
-function AccountAssetGate({ userId, children }: { userId: string; children: ReactNode }) {
-    const bindOwner = useAssetStore((state) => state.bindOwner);
+function AccountDataGate({ userId, children }: { userId: string; children: ReactNode }) {
+    const bindAssets = useAssetStore((state) => state.bindOwner);
+    const bindCanvas = useCanvasStore((state) => state.bindOwner);
     const [ready, setReady] = useState(false);
 
     useEffect(() => {
         let active = true;
         setReady(false);
-        void bindOwner(userId).finally(() => {
+        bindAccountMediaOwner(userId);
+        void Promise.all([bindAssets(userId), bindCanvas(userId)]).finally(() => {
             if (active) setReady(true);
         });
         return () => { active = false; };
-    }, [bindOwner, userId]);
+    }, [bindAssets, bindCanvas, userId]);
 
     if (!ready) return <div className="flex h-dvh items-center justify-center bg-background"><Spin size="large" /></div>;
     return children;

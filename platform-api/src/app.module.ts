@@ -8,6 +8,8 @@ import { AgentBillingModule } from "./agent-billing/agent-billing.module";
 import { AgentThreadModule } from "./agent-threads/agent-thread.module";
 import { AdminModule } from "./admin/admin.module";
 import { AssetModule } from "./assets/asset.module";
+import { CanvasMediaModule } from "./canvas-media/canvas-media.module";
+import { CanvasProjectModule } from "./canvas-projects/canvas-project.module";
 import { validateEnvironment } from "./common/environment";
 import { HealthController } from "./health/health.controller";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -25,6 +27,8 @@ import { WalletModule } from "./wallet/wallet.module";
         AgentBillingModule,
         AgentThreadModule,
         AssetModule,
+        CanvasMediaModule,
+        CanvasProjectModule,
         WalletModule,
         PaymentModule,
         RechargeModule,

@@ -1,5 +1,6 @@
 import localforage from "localforage";
 import { nanoid } from "nanoid";
+import { downloadAccountMedia, queueAccountMediaUpload } from "@/services/account-media";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 
@@ -10,6 +11,7 @@ export async function uploadMediaFile(input: string | Blob, prefix = "file"): Pr
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
     const storageKey = `${prefix}:${nanoid()}`;
     await store.setItem(storageKey, blob);
+    void queueAccountMediaUpload(storageKey, blob).catch(() => undefined);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : blob.type.startsWith("audio/") ? await readAudioMeta(url) : {};
@@ -20,7 +22,7 @@ export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
-    const blob = await store.getItem<Blob>(storageKey);
+    const blob = await loadMediaBlob(storageKey);
     if (!blob) return fallback;
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
@@ -28,14 +30,27 @@ export async function resolveMediaUrl(storageKey?: string, fallback = "") {
 }
 
 export async function getMediaBlob(storageKey: string) {
-    return store.getItem<Blob>(storageKey);
+    return loadMediaBlob(storageKey);
 }
 
 export async function setMediaBlob(storageKey: string, blob: Blob) {
     await store.setItem(storageKey, blob);
+    void queueAccountMediaUpload(storageKey, blob).catch(() => undefined);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
+}
+
+async function loadMediaBlob(storageKey: string) {
+    const local = await store.getItem<Blob>(storageKey);
+    if (local) return local;
+    try {
+        const cloud = await downloadAccountMedia(storageKey);
+        await store.setItem(storageKey, cloud);
+        return cloud;
+    } catch {
+        return null;
+    }
 }
 
 export async function deleteStoredMedia(keys: Iterable<string>) {
@@ -59,8 +74,12 @@ export async function cleanupUnusedMedia(usedData: unknown) {
 }
 
 export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()) {
+    if (typeof value === "string") {
+        if (/^(?:image|video|audio|file)(?:-reference)?:[A-Za-z0-9_-]{8,120}$/.test(value)) keys.add(value);
+        return keys;
+    }
     if (!value || typeof value !== "object") return keys;
-    if ("storageKey" in value && typeof value.storageKey === "string" && value.storageKey.includes(":")) keys.add(value.storageKey);
+    if ("storageKey" in value && typeof value.storageKey === "string" && /^(?:image|video|audio|file)(?:-reference)?:[A-Za-z0-9_-]{8,120}$/.test(value.storageKey)) keys.add(value.storageKey);
     Object.values(value).forEach((item) => (Array.isArray(item) ? item.forEach((child) => collectMediaStorageKeys(child, keys)) : collectMediaStorageKeys(item, keys)));
     return keys;
 }

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
     BookOpen,
+    CloudAlert,
+    CloudCheck,
+    CloudUpload,
     Download,
     HelpCircle,
     Home,
@@ -47,6 +50,7 @@ export function CanvasTopBar({
     onRedo,
     agentOpen,
     compactAgentStatus,
+    cloudStatus,
     onToggleAgent,
     viewMode,
     onViewModeChange,
@@ -71,6 +75,7 @@ export function CanvasTopBar({
     onRedo: () => void;
     agentOpen: boolean;
     compactAgentStatus: { connected: boolean; enabled: boolean; activity: string };
+    cloudStatus: { syncing: boolean; error: string };
     onToggleAgent: () => void;
     viewMode: CanvasViewMode;
     onViewModeChange: (mode: CanvasViewMode) => void;
@@ -121,7 +126,7 @@ export function CanvasTopBar({
                             <Menu className="size-4" />
                         </button>
                     </Dropdown>
-                    <div ref={titleRef} className="min-w-0">
+                    <div ref={titleRef} className="hidden min-w-0 sm:block">
                         {isTitleEditing ? (
                             <input
                                 autoFocus
@@ -140,9 +145,19 @@ export function CanvasTopBar({
                             </button>
                         )}
                     </div>
+                    <Tooltip title={cloudStatus.error || (cloudStatus.syncing ? "正在保存到云端" : "已保存到云端")}>
+                        <span
+                            className="ml-1 inline-flex shrink-0 items-center gap-1 text-[11px] opacity-75"
+                            style={{ color: cloudStatus.error ? "#f59e0b" : theme.node.muted }}
+                            aria-label={cloudStatus.error ? "云端保存失败" : cloudStatus.syncing ? "正在保存到云端" : "已保存到云端"}
+                        >
+                            {cloudStatus.error ? <CloudAlert className="size-3.5" /> : cloudStatus.syncing ? <CloudUpload className="size-3.5" /> : <CloudCheck className="size-3.5" />}
+                            <span className="hidden sm:inline">{cloudStatus.error ? "保存失败" : cloudStatus.syncing ? "保存中" : "已保存"}</span>
+                        </span>
+                    </Tooltip>
                 </div>
 
-                <div className="pointer-events-auto absolute left-1/2 top-3 -translate-x-1/2 rounded-lg border p-0.5 shadow-lg backdrop-blur-xl" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }}>
+                <div className="pointer-events-auto absolute left-1/2 top-14 -translate-x-1/2 rounded-lg border p-0.5 shadow-lg backdrop-blur-xl sm:top-3" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }}>
                     <Segmented
                         size="small"
                         value={viewMode}
@@ -156,13 +171,17 @@ export function CanvasTopBar({
 
                 <div className="pointer-events-auto flex h-10 shrink-0 items-center gap-1 rounded-lg border px-1 shadow-lg backdrop-blur-xl" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }}>
                     <AccountCreditMenu compact style={{ color: theme.node.text }} />
-                    <span className="mx-0.5 h-5 w-px" style={{ background: theme.toolbar.border }} />
-                    <Tooltip title="Skill 与节点插件">
-                        <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.text }} icon={<WandSparkles className="size-4" />} onClick={onOpenPlugins} aria-label="Skill 与节点插件" />
-                    </Tooltip>
-                    <Tooltip title="导出与分享">
-                        <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.text }} icon={<Share2 className="size-4" />} onClick={onExportProject} aria-label="导出与分享" />
-                    </Tooltip>
+                    <span className="mx-0.5 hidden h-5 w-px sm:block" style={{ background: theme.toolbar.border }} />
+                    <span className="hidden sm:inline-flex">
+                        <Tooltip title="Skill 与节点插件">
+                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.text }} icon={<WandSparkles className="size-4" />} onClick={onOpenPlugins} aria-label="Skill 与节点插件" />
+                        </Tooltip>
+                    </span>
+                    <span className="hidden sm:inline-flex">
+                        <Tooltip title="导出与分享">
+                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.text }} icon={<Share2 className="size-4" />} onClick={onExportProject} aria-label="导出与分享" />
+                        </Tooltip>
+                    </span>
                     <Tooltip title={agentOpen ? "收起创作导演" : "打开创作导演"}>
                         <Button
                             type="text"

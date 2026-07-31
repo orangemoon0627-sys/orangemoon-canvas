@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { App, Button } from "antd";
+import { Alert, App, Button } from "antd";
 import { Download, FileUp, Plus } from "lucide-react";
 
 import { readZip } from "@/lib/zip";
@@ -20,6 +20,8 @@ export default function CanvasPage() {
     const inputRef = useRef<HTMLInputElement>(null);
     const autoOpenRef = useRef(false);
     const hydrated = useCanvasStore((state) => state.hydrated);
+    const syncing = useCanvasStore((state) => state.syncing);
+    const syncError = useCanvasStore((state) => state.syncError);
     const projects = useCanvasStore((state) => state.projects);
     const createProject = useCanvasStore((state) => state.createProject);
     const importProject = useCanvasStore((state) => state.importProject);
@@ -99,6 +101,17 @@ export default function CanvasPage() {
                         </Button>
                     </div>
                 </header>
+
+                {syncError ? (
+                    <Alert
+                        type="warning"
+                        showIcon
+                        message="画布尚未保存到云端"
+                        description={syncError}
+                    />
+                ) : syncing ? (
+                    <p className="text-sm text-stone-500">正在同步账户画布...</p>
+                ) : null}
 
                 {!hydrated ? (
                     <section className="flex min-h-[360px] items-center justify-center border-y border-stone-200 text-sm text-stone-500 dark:border-stone-800">正在加载画布...</section>

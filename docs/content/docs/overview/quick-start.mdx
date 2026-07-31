@@ -44,5 +44,5 @@ docker run --rm -p 3000:3000 infinite-canvas
 
 ## 说明
 
-- 当前画布项目和“我的素材”主要保存在浏览器本地，WebDAV 同步需要用户自行配置。
+- 登录后画布项目、上下文和“我的素材”自动同步到服务器，IndexedDB 作为本机缓存；WebDAV 可用于额外导出备份。
 - AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。

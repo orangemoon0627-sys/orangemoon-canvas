@@ -3,8 +3,9 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 
 import { nanoid } from "nanoid";
 import { localForageStorage } from "@/lib/localforage-storage";
-import { cleanupUnusedImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
-import { cleanupUnusedMedia, resolveMediaUrl } from "@/services/file-storage";
+import { cleanupUnusedImages, getImageBlob, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { cleanupUnusedMedia, getMediaBlob, resolveMediaUrl } from "@/services/file-storage";
+import { bindAccountMediaOwner, ensureAccountMediaUploaded } from "@/services/account-media";
 import { deleteAccountAsset, fetchAccountAssets, upsertAccountAsset, type PlatformAsset } from "@/services/api/platform";
 
 export type AssetKind = "text" | "image" | "video";
@@ -65,6 +66,7 @@ export const useAssetStore = create<AssetStore>()(
             assets: [],
             bindOwner: async (userId) => {
                 await waitForHydration();
+                bindAccountMediaOwner(userId);
                 const previous = get();
                 const legacyAssets = previous.ownerId === null ? previous.assets : [];
                 const sameOwnerAssets = previous.ownerId === userId ? previous.assets : [];
@@ -151,6 +153,11 @@ function queueSync(id: string, task: () => Promise<void>) {
 }
 
 async function syncAsset(asset: Asset) {
+    if (asset.kind !== "text" && asset.data.storageKey) {
+        const blob = asset.kind === "image" ? await getImageBlob(asset.data.storageKey) : await getMediaBlob(asset.data.storageKey);
+        const unresolved = await ensureAccountMediaUploaded([{ storageKey: asset.data.storageKey, blob }]);
+        if (unresolved.length) throw new Error(`素材“${asset.title}”的本地文件缺失，已保留本地记录并等待恢复后重试`);
+    }
     await upsertAccountAsset(asset.id, localAssetToPlatform(asset));
 }
 

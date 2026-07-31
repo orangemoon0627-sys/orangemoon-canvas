@@ -210,6 +210,8 @@ function InfiniteCanvasPage() {
     const addAsset = useAssetStore((state) => state.addAsset);
     const cleanupAssetImages = useAssetStore((state) => state.cleanupImages);
     const hydrated = useCanvasStore((state) => state.hydrated);
+    const canvasSyncing = useCanvasStore((state) => state.syncing);
+    const canvasSyncError = useCanvasStore((state) => state.syncError);
     const createProject = useCanvasStore((state) => state.createProject);
     const openProject = useCanvasStore((state) => state.openProject);
     const updateProject = useCanvasStore((state) => state.updateProject);
@@ -2891,6 +2893,7 @@ function InfiniteCanvasPage() {
                     onRedo={redoCanvas}
                     agentOpen={agentPanelOpen}
                     compactAgentStatus={{ connected: localAgentConnected, enabled: localAgentEnabled, activity: localAgentActivity }}
+                    cloudStatus={{ syncing: canvasSyncing, error: canvasSyncError }}
                     onToggleAgent={toggleAgentPanel}
                     viewMode={viewMode}
                     onViewModeChange={setViewMode}

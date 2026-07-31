@@ -100,7 +100,7 @@ docker compose -f docker-compose.local.yml up -d --build
 
 PostgreSQL 数据写入 Compose 卷 `orangemoon-postgres`（本地文件使用 `orangemoon-postgres-local`），包含用户、会话、钱包、账本、充值订单、价格版本、审计记录和官方生成任务。
 
-画布项目、我的素材及自定义渠道配置目前仍保存在每个浏览器本地，不会因为注册账户自动同步到服务器。当前 Compose 也尚未包含 Redis/BullMQ 和对象存储，因此还不适合作为十几人共享的生产素材库。上线前需要完成云端项目/工作区隔离、S3/OSS、任务 worker、备份恢复和监控。
+画布项目、上下文和“我的素材”会按登录账户同步到 PostgreSQL，媒体文件写入独立持久化卷；浏览器 IndexedDB 只是缓存。自定义渠道 API Key 仍只保存在当前浏览器。当前 Compose 尚未包含 Redis/BullMQ 和 S3/OSS，因此适合小规模内测，不适合作为十几人高并发的生产素材库；扩大规模前仍需对象存储、任务 worker、恢复演练和监控。
 
 ## 统计分析（可选）
 

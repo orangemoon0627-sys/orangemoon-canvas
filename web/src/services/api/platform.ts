@@ -123,6 +123,23 @@ export type PlatformAsset = {
     updatedAt: string;
 };
 
+export type PlatformCanvasProject = {
+    id: string;
+    title: string;
+    createdAt: string;
+    updatedAt: string;
+    deletedAt: string | null;
+    data?: Record<string, unknown>;
+};
+
+export type PlatformCanvasMedia = {
+    storageKey: string;
+    mimeType: string;
+    bytes: string;
+    checksum: string;
+    updatedAt: string;
+};
+
 export type ProviderPriceExample = {
     requestedQuantity: number;
     quantity: number;
@@ -192,10 +209,11 @@ export class PlatformApiError extends Error {
 }
 
 export async function platformRequest<T>(path: string, init: RequestInit = {}) {
+    const formDataBody = typeof FormData !== "undefined" && init.body instanceof FormData;
     const response = await fetch(`/platform-api${path.startsWith("/") ? path : `/${path}`}`, {
         ...init,
         credentials: "include",
-        headers: { Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers },
+        headers: { Accept: "application/json", ...(init.body && !formDataBody ? { "Content-Type": "application/json" } : {}), ...init.headers },
     });
     const contentType = response.headers.get("content-type") || "";
     const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text().catch(() => "");
@@ -277,6 +295,39 @@ export function upsertAccountAsset(publicId: string, input: Omit<PlatformAsset, 
 
 export function deleteAccountAsset(publicId: string) {
     return platformRequest<{ ok: true }>(`/assets/${encodeURIComponent(publicId)}`, { method: "DELETE" });
+}
+
+export function fetchCanvasProjects() {
+    return platformRequest<{ ok: true; projects: PlatformCanvasProject[]; deletedProjects: PlatformCanvasProject[] }>("/canvas-projects");
+}
+
+export function upsertCanvasProject(publicId: string, input: { title: string; createdAt: string; updatedAt: string; data: Record<string, unknown> }) {
+    return platformRequest<{ ok: true; project: PlatformCanvasProject }>(`/canvas-projects/${encodeURIComponent(publicId)}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function deleteCanvasProject(publicId: string, deletedAt: string) {
+    return platformRequest<{ ok: true; project: PlatformCanvasProject }>(`/canvas-projects/${encodeURIComponent(publicId)}`, { method: "DELETE", body: JSON.stringify({ deletedAt }) });
+}
+
+export function findMissingCanvasMedia(keys: string[]) {
+    return platformRequest<{ ok: true; missing: string[] }>("/canvas-media/missing", { method: "POST", body: JSON.stringify({ keys }) });
+}
+
+export function uploadCanvasMedia(storageKey: string, blob: Blob) {
+    const body = new FormData();
+    body.append("file", blob, storageKey.replace(/[^A-Za-z0-9_.-]+/g, "_") || "media");
+    return platformRequest<{ ok: true; media: PlatformCanvasMedia }>(`/canvas-media/${encodeURIComponent(storageKey)}`, { method: "PUT", body });
+}
+
+export async function downloadCanvasMedia(storageKey: string) {
+    const response = await fetch(`/platform-api/canvas-media/${encodeURIComponent(storageKey)}`, { credentials: "include", headers: { Accept: "*/*" } });
+    if (!response.ok) {
+        const contentType = response.headers.get("content-type") || "";
+        const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text().catch(() => "");
+        if (response.status === 401) window.dispatchEvent(new CustomEvent("orangemoon:session-expired"));
+        throw new PlatformApiError(response.status, readApiMessage(body) || `媒体下载失败（${response.status}）`);
+    }
+    return response.blob();
 }
 
 export type AdminUser = PlatformUser & { totalCredits: string };

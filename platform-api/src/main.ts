@@ -2,12 +2,13 @@ import "reflect-metadata";
 
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
+import multipart from "@fastify/multipart";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
 
 import { AppModule } from "./app.module";
-import { allowedOrigins, platformBodyLimitBytes, platformMaxConcurrentGenerations, platformPort } from "./common/environment";
+import { allowedOrigins, platformBodyLimitBytes, platformMaxConcurrentGenerations, platformMediaMaxFileBytes, platformPort } from "./common/environment";
 import { isGenerationSubmission } from "./common/generation-request";
 
 async function bootstrap() {
@@ -15,6 +16,7 @@ async function bootstrap() {
     const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, { bufferLogs: true });
     await app.register(cookie);
     await app.register(helmet, { crossOriginResourcePolicy: false });
+    await app.register(multipart, { limits: { files: 1, fileSize: platformMediaMaxFileBytes() } });
     const origins = allowedOrigins();
     const generationLimit = platformMaxConcurrentGenerations();
     const admittedGenerationRequests = new WeakSet<object>();

@@ -9,9 +9,12 @@ description: 画布本地存储、节点结构、媒体文件与清理机制
 
 ## 当前存储位置
 
-当前画布项目主要保存在浏览器本地：
+当前画布项目采用本地缓存与账户云端主副本并行保存：
 
-- 画布项目 JSON：`localForage`，数据库名 `infinite-canvas`，storeName `app_state`，key 为 `infinite-canvas:canvas_store`。
+- 本地缓存：`localForage`，数据库名 `infinite-canvas`，storeName `app_state`，key 为 `infinite-canvas:canvas_store`。
+- 云端项目：PostgreSQL `CanvasProject`，按 `userId + publicId` 唯一并使用客户端更新时间解决整项目快照冲突；删除保留墓碑。
+- 云端媒体：PostgreSQL `CanvasMedia` 保存索引，原始图片/视频/音频写入服务器持久化卷；新设备按 `storageKey` 懒加载回本地缓存。
+- Agent 对话：PostgreSQL `AgentThread`，按 `userId + projectId` 隔离，画布项目 ID 在同步时保持不变。
 - 我的素材 JSON：`localForage`，数据库名 `infinite-canvas`，storeName `app_state`，key 为 `infinite-canvas:asset_store`。
 - 图片 Blob：单独存到 `localForage` 实例，数据库名 `infinite-canvas`，storeName `image_files`。
 - 视频等媒体 Blob：单独存到 `localForage` 实例，数据库名 `infinite-canvas`，storeName `media_files`。
