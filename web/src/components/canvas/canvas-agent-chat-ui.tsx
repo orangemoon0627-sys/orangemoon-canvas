@@ -5,7 +5,7 @@ import { Streamdown } from "streamdown";
 
 import { isPlainEnterKey } from "@/lib/keyboard-event";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { getOrangeMoonModelLabel } from "@/lib/orange-moon-provider";
+import { canonicalOrangeMoonVideoModel, getOrangeMoonModelLabel } from "@/lib/orange-moon-provider";
 import type { LocalUser } from "@/stores/use-user-store";
 import type { AgentWorkflowPreview, AgentWorkflowPreviewStage } from "@/lib/agent/agent-workflow-preview";
 import type { AgentGenerationPlanItem } from "@/lib/agent/agent-generation-plan";
@@ -237,15 +237,19 @@ function AgentGenerationReviewPanel({ review, theme }: { review: AgentGeneration
 function AgentGenerationReviewRow({ item, quoteCredits, catalog, theme, onChange }: { item: AgentGenerationPlanItem; quoteCredits?: string; catalog: ProviderCatalog | null; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onChange: AgentGenerationReview["onChange"] }) {
     const models = (catalog?.models || []).filter((model) => model.capability === item.mode);
     const selectedModel = models.find((model) => model.id === item.model);
-    const modelOptions = [...(selectedModel || !item.model ? [] : [{ value: item.model, label: getOrangeMoonModelLabel(item.model) }]), ...models.map((model) => ({ value: model.id, label: model.label }))];
+    const selectedProduct = item.mode === "video" ? selectedModel?.product || canonicalOrangeMoonVideoModel(item.model) : item.model;
+    const videoProducts = Array.from(new Map(models.filter((model) => model.product).map((model) => [model.product!, { value: model.product!, label: getOrangeMoonModelLabel(model.product!) }])).values());
+    const modelOptions = item.mode === "video" ? videoProducts : [...(selectedModel || !item.model ? [] : [{ value: item.model, label: getOrangeMoonModelLabel(item.model) }]), ...models.map((model) => ({ value: model.id, label: model.label }))];
     const ratios = item.mode === "video" ? selectedModel?.aspectRatios || ["16:9", "9:16"] : ["1:1", "16:9", "9:16", "4:3", "3:4"];
     const durations = selectedModel?.fixedDuration ? [selectedModel.fixedDuration] : selectedModel?.allowedDurations || selectedModel?.recommendedDurations || [5, 10, 15];
     const changeModel = (model: string) => {
-        const next = models.find((entry) => entry.id === model);
+        const productModels = item.mode === "video" ? models.filter((entry) => entry.product === model) : models;
+        const next = item.mode === "video" ? productModels.find((entry) => entry.resolution === item.resolution) || productModels.find((entry) => entry.resolution === "720p") || productModels[0] : models.find((entry) => entry.id === model);
         const nextSeconds = next?.fixedDuration || (next?.allowedDurations?.includes(item.seconds) ? item.seconds : next?.allowedDurations?.[0]) || item.seconds;
         const nextSize = next?.aspectRatios?.includes(item.size) ? item.size : next?.aspectRatios?.[0] || item.size;
-        onChange(item.nodeId, { model, ...(item.mode === "video" ? { seconds: String(nextSeconds), size: nextSize, vquality: next?.resolution?.replace("p", "") } : {}) });
+        onChange(item.nodeId, { model: next?.id || model, ...(item.mode === "video" ? { seconds: String(nextSeconds), size: nextSize, vquality: next?.resolution?.replace("p", "") } : {}) });
     };
+    const resolutionOptions = item.mode === "video" ? models.filter((entry) => entry.product === selectedProduct && entry.resolution).map((entry) => ({ value: entry.resolution!, label: entry.resolution!.toUpperCase(), model: entry.id })) : [];
     return (
         <div className="py-3 first:border-t" style={{ borderColor: theme.node.stroke }}>
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -254,7 +258,7 @@ function AgentGenerationReviewRow({ item, quoteCredits, catalog, theme, onChange
             </div>
             <div className="grid grid-cols-2 gap-2">
                 <LabeledControl label="模型">
-                    <Select size="small" className="w-full" value={item.model} options={modelOptions} onChange={changeModel} />
+                    <Select size="small" className="w-full" value={selectedProduct} options={modelOptions} onChange={changeModel} />
                 </LabeledControl>
                 {item.mode === "audio" ? (
                     <LabeledControl label="计费文本"><div className="flex h-6 items-center text-xs">约 {item.promptLength} 字符</div></LabeledControl>
@@ -271,7 +275,7 @@ function AgentGenerationReviewRow({ item, quoteCredits, catalog, theme, onChange
                 ) : item.mode === "video" ? (
                     <>
                         <LabeledControl label="时长"><Select size="small" className="w-full" value={item.seconds} options={durations.map((seconds) => ({ value: seconds, label: `${seconds} 秒` }))} onChange={(seconds) => onChange(item.nodeId, { seconds: String(seconds) })} /></LabeledControl>
-                        <LabeledControl label="清晰度"><div className="flex h-6 items-center text-xs">{selectedModel?.resolution?.toUpperCase() || "随模型"}</div></LabeledControl>
+                        <LabeledControl label="清晰度"><Select size="small" className="w-full" value={selectedModel?.resolution || item.resolution} options={resolutionOptions} onChange={(resolution) => { const next = resolutionOptions.find((option) => option.value === resolution); onChange(item.nodeId, { vquality: resolution.replace("p", ""), ...(next ? { model: next.model } : {}) }); }} /></LabeledControl>
                     </>
                 ) : null}
             </div>

@@ -866,7 +866,7 @@ function buildLog({ prompt, model, config, references, videoReferences, audioRef
 function buildVideoConfig(config: AiConfig, model: string): AiConfig {
     const seedance = isSeedanceVideoConfig({ ...config, model });
     const modelName = modelOptionName(model);
-    const orangeMoonModel = getOrangeMoonVideoModel(modelName);
+    const orangeMoonModel = getOrangeMoonVideoModel(modelName, config.vquality);
     const normalizedRatio = normalizeSeedanceRatio(config.size);
     return {
         ...config,

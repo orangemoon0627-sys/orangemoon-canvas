@@ -1,5 +1,5 @@
 import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
-import { getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
+import { getOrangeMoonVideoModel, getOrangeMoonVideoProduct } from "@/lib/orange-moon-provider";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -78,6 +78,8 @@ export function isArkPlanBaseUrl(baseUrl: string) {
 
 export function normalizeSeedanceResolution(value: string, model = "") {
     const normalized = normalizeResolutionToken(value);
+    const product = getOrangeMoonVideoProduct(modelOptionName(model));
+    if (product && !product.resolutions.includes(normalized as (typeof product.resolutions)[number])) return product.defaultResolution;
     if (isSeedanceFastModel(model) && normalized === "1080p") return "720p";
     return seedanceResolutionOptions.some((item) => item.value === normalized) ? normalized : "720p";
 }

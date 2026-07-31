@@ -145,6 +145,7 @@ export type ProviderCatalogModel = {
     visibility: "public" | "legacy";
     description: string;
     resolution?: "480p" | "720p" | "1080p";
+    product?: "seedance-2.0" | "seedance-2.0-fast" | "seedance-2.0-mini";
     tier?: "economy" | "mini" | "fast" | "standard" | "pro";
     minDuration?: number;
     maxDuration?: number;

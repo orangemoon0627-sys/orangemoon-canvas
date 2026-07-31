@@ -1,8 +1,9 @@
-export const PROVIDER_CATALOG_VERSION = "orangemoon-provider-v4";
+export const PROVIDER_CATALOG_VERSION = "orangemoon-provider-v5";
 
 export type ProviderCapability = "image" | "video" | "audio";
 export type ProviderModelVisibility = "public" | "legacy";
 export type ProviderVideoTier = "economy" | "mini" | "fast" | "standard" | "pro";
+export type ProviderVideoProduct = "seedance-2.0" | "seedance-2.0-fast" | "seedance-2.0-mini";
 export type ProviderBilling =
     | { unit: "image"; usd: number }
     | { unit: "second"; usd: number }
@@ -19,6 +20,7 @@ export type ProviderModel = {
     description: string;
     resolution?: "480p" | "720p" | "1080p";
     tier?: ProviderVideoTier;
+    product?: ProviderVideoProduct;
     upstreamModel?: string;
     upstreamSource?: "web";
     minDuration?: number;
@@ -43,7 +45,7 @@ function videoModel(
     resolution: ProviderModel["resolution"],
     billing: ProviderBilling,
     references: NonNullable<ProviderModel["references"]>,
-    options: { fixedDuration?: number; allowedDurations?: number[]; aspectRatios?: string[]; description?: string; upstreamModel?: string; upstreamSource?: "web"; visibility?: ProviderModelVisibility; tier?: ProviderVideoTier } = {},
+    options: { fixedDuration?: number; allowedDurations?: number[]; aspectRatios?: string[]; description?: string; upstreamModel?: string; upstreamSource?: "web"; visibility?: ProviderModelVisibility; tier?: ProviderVideoTier; product?: ProviderVideoProduct } = {},
 ): ProviderModel {
     const fixedDuration = options.fixedDuration;
     return {
@@ -55,6 +57,7 @@ function videoModel(
         billing,
         resolution,
         tier: options.tier,
+        product: options.product,
         upstreamModel: options.upstreamModel,
         upstreamSource: options.upstreamSource,
         minDuration: fixedDuration || 5,
@@ -70,16 +73,16 @@ function videoModel(
 
 export const PROVIDER_MODELS: ProviderModel[] = [
     { id: "gpt-image-2", label: "Image 2", provider: "metajing", capability: "image", visibility: "public", billing: { unit: "image", usd: 0.06 }, description: "文生图与单张参考图图生图，支持最长边 3840px，一次最多 4 张" },
-    videoModel("seedance-2.0-480p-mini", "Seedance 2.0 480P Mini", "480p", { unit: "second", usd: 0.158 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -480p mini", upstreamSource: "web", visibility: "public", tier: "mini", description: "轻量档，支持最多 4 张图片、3 段视频和 1 段音频参考" }),
-    videoModel("seedance-2.0-480p-fast", "Seedance 2.0 480P Fast", "480p", { unit: "second", usd: 1 / 6 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0-fast", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, visibility: "public", tier: "fast", description: "快速档，支持图片、视频与音频参考，可生成声音" }),
-    videoModel("seedance-2.0-480p-standard", "Seedance 2.0 480P 标准", "480p", { unit: "second", usd: 0.2 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, visibility: "public", tier: "standard", description: "标准档，支持图片、视频与音频参考，可生成声音" }),
-    videoModel("seedance-2.0-480p-pro", "Seedance 2.0 480P Pro", "480p", { unit: "second", usd: 0.268 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -480p", upstreamSource: "web", visibility: "public", tier: "pro", description: "高质量档，支持最多 4 张图片、3 段视频和 1 段音频参考" }),
-    videoModel("seedance-2.0-720p-economy", "Seedance 2.0 720P 经济", "720p", { unit: "second", usd: 0.1 }, { ...DEFAULT_REFERENCES, videos: 0, audios: 0 }, { upstreamModel: "Seedance 2.0-fast-720p", allowedDurations: [5, 10, 15], aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"], visibility: "public", tier: "economy", description: "低成本预览档，支持图片参考，不支持视频或音频参考" }),
-    videoModel("seedance-2.0-720p-fast", "Seedance 2.0 720P Fast", "720p", { unit: "second", usd: 0.2 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0-fast", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, visibility: "public", tier: "fast", description: "快速档，支持图片、视频与音频参考，可生成声音" }),
-    videoModel("seedance-2.0-720p-mini", "Seedance 2.0 720P Mini", "720p", { unit: "second", usd: 0.228 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -720p mini", upstreamSource: "web", visibility: "public", tier: "mini", description: "轻量档，支持最多 4 张图片、3 段视频和 1 段音频参考" }),
-    videoModel("seedance-2.0-720p-standard", "Seedance 2.0 720P 标准", "720p", { unit: "second", usd: 4 / 15 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, visibility: "public", tier: "standard", description: "标准档，支持图片、视频与音频参考，可生成声音" }),
-    videoModel("seedance-2.0-720p-pro", "Seedance 2.0 720P Pro", "720p", { unit: "second", usd: 0.4 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -720p pro", upstreamSource: "web", visibility: "public", tier: "pro", description: "高质量档，15 秒售价 9.9 积分" }),
-    videoModel("seedance-2.0-1080p-standard", "Seedance 2.0 1080P 标准", "1080p", { unit: "second", usd: 0.6 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, visibility: "public", tier: "standard", description: "1080P 标准档，支持图片、视频与音频参考，可生成声音" }),
+    videoModel("seedance-2.0-480p-mini", "Seedance 2.0 Mini", "480p", { unit: "second", usd: 0.158 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -480p mini", upstreamSource: "web", visibility: "public", tier: "mini", product: "seedance-2.0-mini", description: "Mini 轻量档，支持最多 4 张图片、3 段视频和 1 段音频参考" }),
+    videoModel("seedance-2.0-480p-fast", "Seedance 2.0 Fast", "480p", { unit: "second", usd: 0.165 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -480p fast", upstreamSource: "web", visibility: "public", tier: "fast", product: "seedance-2.0-fast", description: "Fast 快速档，支持最多 4 张图片、3 段视频和 1 段音频参考" }),
+    videoModel("seedance-2.0-480p-standard", "Seedance 2.0（旧标准通道）", "480p", { unit: "second", usd: 0.2 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, tier: "standard" }),
+    videoModel("seedance-2.0-480p-pro", "Seedance 2.0", "480p", { unit: "second", usd: 0.268 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -480p", upstreamSource: "web", visibility: "public", tier: "pro", product: "seedance-2.0", description: "完整质量档，支持最多 4 张图片、3 段视频和 1 段音频参考" }),
+    videoModel("seedance-2.0-720p-economy", "Seedance 2.0 Fast（旧经济通道）", "720p", { unit: "second", usd: 0.1 }, { ...DEFAULT_REFERENCES, videos: 0, audios: 0 }, { upstreamModel: "Seedance 2.0-fast-720p", allowedDurations: [5, 10, 15], aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"], tier: "economy" }),
+    videoModel("seedance-2.0-720p-fast", "Seedance 2.0 Fast", "720p", { unit: "second", usd: 0.298 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -720p fast", upstreamSource: "web", visibility: "public", tier: "fast", product: "seedance-2.0-fast", description: "Fast 快速档，支持最多 4 张图片、3 段视频和 1 段音频参考" }),
+    videoModel("seedance-2.0-720p-mini", "Seedance 2.0 Mini", "720p", { unit: "second", usd: 0.228 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -720p mini", upstreamSource: "web", visibility: "public", tier: "mini", product: "seedance-2.0-mini", description: "Mini 轻量档，支持最多 4 张图片、3 段视频和 1 段音频参考" }),
+    videoModel("seedance-2.0-720p-standard", "Seedance 2.0（旧标准通道）", "720p", { unit: "second", usd: 4 / 15 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, tier: "standard" }),
+    videoModel("seedance-2.0-720p-pro", "Seedance 2.0", "720p", { unit: "second", usd: 0.4 }, PRO_REFERENCES, { upstreamModel: "mg-seedance2.0 -720p pro", upstreamSource: "web", visibility: "public", tier: "pro", product: "seedance-2.0", description: "完整质量档，15 秒售价 9.9 积分" }),
+    videoModel("seedance-2.0-1080p-standard", "Seedance 2.0", "1080p", { unit: "second", usd: 0.67 }, DEFAULT_REFERENCES, { upstreamModel: "mg-seedance2.0 -1080p", upstreamSource: "web", visibility: "public", tier: "pro", product: "seedance-2.0", description: "完整质量档 1080P，支持图片、视频和音频参考" }),
     videoModel("qy-seedance-2.0-480p", "Seedance 2.0 480P 标准（旧配置）", "480p", { unit: "second", usd: 0.2 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, tier: "standard" }),
     videoModel("qy-seedance-2.0-720p", "Seedance 2.0 720P 标准（旧配置）", "720p", { unit: "second", usd: 4 / 15 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, tier: "standard" }),
     videoModel("qy-seedance-2.0-1080p", "Seedance 2.0 1080P 标准（旧配置）", "1080p", { unit: "second", usd: 0.6 }, DEFAULT_REFERENCES, { upstreamModel: "qy-seedance-2.0", allowedDurations: [5, 10, 15], aspectRatios: QY_RATIOS, tier: "standard" }),

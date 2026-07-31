@@ -34,7 +34,7 @@ type MetaJingTask = {
     price_usd?: number;
 };
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; onTaskCreated?: (task: VideoGenerationTask) => void };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "metajing" | "plugin"; model: string };
@@ -56,12 +56,17 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
-    for (let attempt = 0; attempt < 120; attempt += 1) {
+    options?.onTaskCreated?.(task);
+    return waitForVideoGenerationTask(config, task, options);
+}
+
+export async function waitForVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: Pick<RequestOptions, "signal">): Promise<VideoGenerationResult> {
+    for (let attempt = 0; attempt < 720; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw new Error(state.error);
-        if (attempt === 119) throw new Error(`${task.provider === "seedance" || task.provider === "metajing" ? "Seedance " : ""}视频生成超时，请稍后重试`);
+        if (attempt === 719) throw new Error(`${task.provider === "seedance" || task.provider === "metajing" ? "Seedance " : ""}视频任务已超过 6 小时，请在资产记录中查看最终状态`);
         await delay(videoPollDelayMs(task, attempt), options?.signal);
     }
     throw new Error("视频生成超时，请稍后重试");
@@ -187,13 +192,13 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
 }
 
 async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const modelName = canonicalOrangeMoonVideoModel(modelOptionName(selectedModel));
-    const model = getOrangeMoonVideoModel(modelName);
+    const productName = canonicalOrangeMoonVideoModel(modelOptionName(selectedModel));
+    const model = getOrangeMoonVideoModel(productName, config.vquality);
     if (!model) throw new Error("橙月官方渠道没有登记这个视频模型");
     assertOrangeMoonReferences(model, references, videoReferences, audioReferences);
     const ratio = normalizeSeedanceRatio(config.size);
     const aspectRatio = model.aspectRatios.includes(ratio) ? ratio : model.aspectRatios[0];
-    const duration = normalizeSeedanceDurationForModel(modelName, config.videoSeconds);
+    const duration = normalizeSeedanceDurationForModel(productName, config.videoSeconds);
     const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
     const [images, videos, audios] = await Promise.all([
         Promise.all(references.map((image) => resolveOrangeMoonImageUrl(image))),
@@ -203,7 +208,7 @@ async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, 
     try {
         const created = await orangeMoonPost<MetaJingTask>(
             "/metajing/v1/video/generations",
-            { model: modelName, prompt: text, duration, aspect_ratio: aspectRatio, images, videos, audios },
+            { model: model.name, prompt: text, duration, aspect_ratio: aspectRatio, images, videos, audios },
             { signal: options?.signal },
         );
         const taskId = created.id || created.task_id;

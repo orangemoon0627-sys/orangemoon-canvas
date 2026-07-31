@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, ServiceUnavailableException } from "@nestjs/common";
 import { AssetKind, GenerationStatus, Prisma, type GenerationJob } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
@@ -11,13 +11,28 @@ import { ProviderUpstreamService } from "./provider-upstream.service";
 import { imageRequestSchema, minimaxSpeechSchema, videoRequestSchema, type ImageRequest, type SpeechRequest, type VideoRequest } from "./provider-schemas";
 
 @Injectable()
-export class GenerationService {
+export class GenerationService implements OnApplicationBootstrap, OnModuleDestroy {
+    private readonly logger = new Logger(GenerationService.name);
+    private reconcileTimer?: NodeJS.Timeout;
+    private reconciling = false;
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly ledger: LedgerService,
         private readonly pricing: PricingService,
         private readonly upstream: ProviderUpstreamService,
     ) {}
+
+    onApplicationBootstrap() {
+        const intervalMs = Math.max(10_000, Number(process.env.VIDEO_RECONCILE_INTERVAL_MS) || 20_000);
+        this.reconcileTimer = setInterval(() => void this.reconcileSubmittedVideos(), intervalMs);
+        this.reconcileTimer.unref();
+        setTimeout(() => void this.reconcileSubmittedVideos(), 2_000).unref();
+    }
+
+    onModuleDestroy() {
+        if (this.reconcileTimer) clearInterval(this.reconcileTimer);
+    }
 
     parseImage(body: unknown) { return parseSchema(imageRequestSchema, body); }
     parseVideo(body: unknown) { return parseSchema(videoRequestSchema, body); }
@@ -56,8 +71,8 @@ export class GenerationService {
             const job = await this.prisma.generationJob.update({ where: { id: reservation.job.id }, data: { providerTaskId, status: GenerationStatus.SUBMITTED, providerState: String(result.state || result.status || "submitted").slice(0, 100) } });
             const outputUrl = videoResultUrl(result);
             if (outputUrl) {
-                await this.settle(job, quote.retailMilliCredits);
                 await this.registerVideoAsset(job, outputUrl);
+                await this.settle(job, quote.retailMilliCredits);
             }
             return publicVideoTaskResult(result, job.publicId);
         } catch (error) {
@@ -70,13 +85,40 @@ export class GenerationService {
         const job = await this.prisma.generationJob.findFirst({ where: { publicId, userId, capability: "video" } });
         if (!job) throw new NotFoundException("视频任务不存在");
         if (job.status === GenerationStatus.FAILED || job.status === GenerationStatus.RELEASED) return { id: job.publicId, state: "failed", is_final: true, error: job.error || "视频生成失败" };
+        if (job.status === GenerationStatus.SUCCEEDED) return this.completedVideoResult(job);
+        if (!job.providerTaskId) throw new ConflictException("视频任务尚未提交到供应商");
+        return this.refreshSubmittedVideo(job);
+    }
+
+    async reconcileSubmittedVideos() {
+        if (this.reconciling) return;
+        this.reconciling = true;
+        try {
+            const jobs = await this.prisma.generationJob.findMany({
+                where: { capability: "video", status: GenerationStatus.SUBMITTED, providerTaskId: { not: null } },
+                orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+                take: 20,
+            });
+            for (const job of jobs) {
+                try {
+                    await this.refreshSubmittedVideo(job);
+                } catch (error) {
+                    this.logger.warn(`视频任务 ${job.publicId} 后台查询失败：${error instanceof Error ? error.message : "未知错误"}`);
+                }
+            }
+        } finally {
+            this.reconciling = false;
+        }
+    }
+
+    private async refreshSubmittedVideo(job: GenerationJob) {
         if (!job.providerTaskId) throw new ConflictException("视频任务尚未提交到供应商");
         const result = asRecord(await this.upstream.pollVideo(job.providerTaskId));
         const state = String(result.state || result.status || "processing").toLowerCase();
         const withPublicId = { ...result, id: job.publicId };
         if (videoResultUrl(result)) {
-            await this.settle(job, job.reservedMilliCredits);
             await this.registerVideoAsset(job, videoResultUrl(result));
+            await this.settle(job, job.reservedMilliCredits);
             return withPublicId;
         }
         if (videoFailed(result, state)) {
@@ -85,6 +127,12 @@ export class GenerationService {
         }
         await this.prisma.generationJob.updateMany({ where: { id: job.id, status: GenerationStatus.SUBMITTED }, data: { providerState: state.slice(0, 100) } });
         return withPublicId;
+    }
+
+    private async completedVideoResult(job: GenerationJob) {
+        const asset = await this.prisma.asset.findFirst({ where: { generationJobId: job.id, kind: AssetKind.VIDEO }, orderBy: { ordinal: "asc" }, select: { data: true } });
+        const resultUrl = String(asRecord(asset?.data).url || "").trim();
+        return { id: job.publicId, state: "success", status: "已完成", is_final: true, progress: "100%", ...(resultUrl ? { result_url: resultUrl } : {}) };
     }
 
     async speech(userId: string, idempotencyKey: string, input: SpeechRequest) {
@@ -195,10 +243,10 @@ export class GenerationService {
 
     private async registerVideoAsset(job: GenerationJob, url: string) {
         if (!/^https?:\/\//i.test(url)) return;
-        await this.registerAssets(job, [{ kind: AssetKind.VIDEO, title: "Seedance 2.0 生成视频", data: { url, width: 0, height: 0, bytes: 0, mimeType: "video/mp4" } }]);
+        await this.registerAssets(job, [{ kind: AssetKind.VIDEO, title: "Seedance 2.0 生成视频", data: { url, width: 0, height: 0, bytes: 0, mimeType: "video/mp4" } }], true);
     }
 
-    private async registerAssets(job: GenerationJob, outputs: Array<{ kind: AssetKind; title: string; data: Prisma.InputJsonValue }>) {
+    private async registerAssets(job: GenerationJob, outputs: Array<{ kind: AssetKind; title: string; data: Prisma.InputJsonValue }>, required = false) {
         try {
             return await Promise.all(outputs.map((output, ordinal) => this.prisma.asset.upsert({
                 where: { generationJobId_ordinal: { generationJobId: job.id, ordinal } },
@@ -216,7 +264,8 @@ export class GenerationService {
                 },
                 update: { data: output.data, title: output.title },
             })));
-        } catch {
+        } catch (error) {
+            if (required) throw error;
             // Asset indexing must not turn an already-paid successful generation into a failed request.
             return [];
         }

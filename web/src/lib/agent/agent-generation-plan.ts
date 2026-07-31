@@ -11,6 +11,7 @@ export type AgentGenerationDefaults = {
     imageCount: number;
     videoSize: string;
     videoSeconds: number;
+    videoResolution: string;
 };
 
 export type AgentGenerationPlanItem = {
@@ -23,6 +24,7 @@ export type AgentGenerationPlanItem = {
     quality: string;
     count: number;
     seconds: number;
+    resolution: string;
     promptLength: number;
 };
 
@@ -76,6 +78,7 @@ export function buildAgentGenerationPlan(ops: CanvasAgentOp[] | undefined, snaps
             quality: metadata.quality || defaults.imageQuality,
             count: boundedInteger(metadata.count, defaults.imageCount, 1, 4),
             seconds: boundedInteger(metadata.seconds, defaults.videoSeconds, 1, 60),
+            resolution: normalizeVideoResolution(metadata.vquality || inferModelResolution(metadata.model) || defaults.videoResolution),
             promptLength: Math.max(1, prompt.trim().length),
         }];
     });
@@ -109,7 +112,7 @@ export function synchronizeAgentGenerationOps(ops: CanvasAgentOp[] | undefined, 
             model: item.model,
             ...(item.mode === "audio" ? {} : { size: item.size }),
             ...(item.mode === "image" ? { quality: item.quality, count: item.count } : {}),
-            ...(item.mode === "video" ? { seconds: String(item.seconds) } : {}),
+            ...(item.mode === "video" ? { seconds: String(item.seconds), vquality: item.resolution.replace("p", "") } : {}),
         });
     }
     return next;
@@ -156,4 +159,13 @@ function boundedInteger(value: unknown, fallback: number, minimum: number, maxim
 
 function modeLabel(mode: AgentGenerationPlanItem["mode"]) {
     return mode === "image" ? "图片生成" : mode === "video" ? "视频生成" : "音频生成";
+}
+
+function inferModelResolution(value: unknown) {
+    return typeof value === "string" ? value.match(/(480|720|1080)p?/i)?.[1] : undefined;
+}
+
+function normalizeVideoResolution(value: unknown) {
+    const resolution = String(value || "720").toLowerCase().replace(/p$/, "");
+    return resolution === "480" || resolution === "1080" ? `${resolution}p` : "720p";
 }

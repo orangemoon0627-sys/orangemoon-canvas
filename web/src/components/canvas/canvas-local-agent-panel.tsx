@@ -11,6 +11,7 @@ import { imageMetadata } from "@/lib/canvas/canvas-node-factory";
 import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { readImageMeta } from "@/lib/image-utils";
 import { randomId } from "@/lib/utils";
+import { canonicalOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
 import { uploadImage } from "@/services/image-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -143,8 +144,9 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
                 imageCount: Number(effectiveConfig.canvasImageCount || effectiveConfig.count) || 1,
                 videoSize: effectiveConfig.size || "16:9",
                 videoSeconds: Number(effectiveConfig.videoSeconds) || 5,
+                videoResolution: effectiveConfig.vquality || "720",
             }),
-        [effectiveConfig.audioModel, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.quality, effectiveConfig.size, effectiveConfig.videoModel, effectiveConfig.videoSeconds, pendingTool],
+        [effectiveConfig.audioModel, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.quality, effectiveConfig.size, effectiveConfig.videoModel, effectiveConfig.videoSeconds, effectiveConfig.vquality, pendingTool],
     );
     const reviewGenerationPlan = useMemo(() => normalizeGenerationPlan(generationPlan, providerCatalog), [generationPlan, providerCatalog]);
     const billableQuoteItems = useMemo(() => officialQuoteItems(reviewGenerationPlan, providerCatalog), [providerCatalog, reviewGenerationPlan]);
@@ -656,6 +658,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
                 imageCount: Number(effectiveConfig.canvasImageCount || effectiveConfig.count) || 1,
                 videoSize: effectiveConfig.size || "16:9",
                 videoSeconds: Number(effectiveConfig.videoSeconds) || 5,
+                videoResolution: effectiveConfig.vquality || "720",
             });
             const latestPlan = normalizeGenerationPlan(latestRawPlan, catalog);
             const executionOps = synchronizeAgentGenerationOps(tool.input?.ops, latestPlan);
@@ -1749,13 +1752,20 @@ function officialQuoteItems(plan: ReturnType<typeof buildAgentGenerationPlan>, c
 function normalizeGenerationPlan(plan: ReturnType<typeof buildAgentGenerationPlan>, catalog: ProviderCatalog | null) {
     if (!catalog) return plan;
     return plan.map((item) => {
-        const model = catalog.models.find((candidate) => candidate.capability === item.mode && (candidate.id === item.model || candidate.label.toLowerCase() === item.model.toLowerCase()));
+        const product = item.mode === "video" ? canonicalOrangeMoonVideoModel(item.model) : "";
+        const model = catalog.models.find((candidate) =>
+            candidate.capability === item.mode
+            && (candidate.id === item.model
+                || candidate.label.toLowerCase() === item.model.toLowerCase()
+                || (item.mode === "video" && candidate.product === product && candidate.resolution === item.resolution)),
+        );
         if (!model) return item;
         if (item.mode !== "video") return { ...item, model: model.id };
         const durations = model.fixedDuration ? [model.fixedDuration] : model.allowedDurations || model.recommendedDurations || [];
         return {
             ...item,
             model: model.id,
+            resolution: model.resolution || item.resolution,
             size: model.aspectRatios?.includes(item.size) ? item.size : model.aspectRatios?.[0] || item.size,
             seconds: durations.includes(item.seconds) ? item.seconds : durations[0] || Math.min(model.maxDuration || 15, Math.max(model.minDuration || 5, item.seconds)),
         };

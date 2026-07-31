@@ -51,6 +51,9 @@ export type CanvasNodeMetadata = {
     generationEstimatedSeconds?: number;
     generationStage?: string;
     generationProgressFloor?: number;
+    generationTaskId?: string;
+    generationTaskProvider?: "openai" | "seedance" | "metajing" | "plugin";
+    generationTaskModel?: string;
     references?: string[];
     naturalWidth?: number;
     naturalHeight?: number;

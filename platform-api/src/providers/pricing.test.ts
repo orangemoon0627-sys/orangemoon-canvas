@@ -32,12 +32,12 @@ test("Seedance 按时长计费，固定条目不重复乘时长", () => {
     assert.equal(fixed.quantity, 1);
 });
 
-test("清衍模型按分辨率拆分并映射到同一上游模型", () => {
+test("旧清衍模型保持可计价，公开 Fast 档使用当前 MetaJing 费率", () => {
     const standard720 = findProviderModel("seedance-2.0-720p-standard")!;
     const fast480 = findProviderModel("seedance-2.0-480p-fast")!;
     assert.equal(standard720.upstreamModel, "qy-seedance-2.0");
     assert.equal(pricing.quote(standard720, 15).retailCredits, "6.6");
-    assert.equal(pricing.quote(fast480, 5).retailCredits, "1.375");
+    assert.equal(pricing.quote(fast480, 5).retailCredits, "1.362");
 });
 
 test("720P Pro 15 秒售价固定在 9.9 积分并反推统一毛利率", () => {

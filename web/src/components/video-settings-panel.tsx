@@ -4,7 +4,7 @@ import { Switch } from "antd";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceFastModel, isSeedanceVideoConfig, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
+import { getOrangeMoonVideoModel, getOrangeMoonVideoProduct } from "@/lib/orange-moon-provider";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
@@ -107,7 +107,8 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
 
 function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
     const model = modelOptionName(config.model || config.videoModel);
-    const orangeMoonModel = getOrangeMoonVideoModel(model);
+    const orangeMoonProduct = getOrangeMoonVideoProduct(model);
+    const orangeMoonModel = getOrangeMoonVideoModel(model, config.vquality);
     const resolution = orangeMoonModel?.resolution || normalizeSeedanceResolution(config.vquality, model);
     const normalizedRatio = normalizeSeedanceRatio(config.size);
     const ratio = orangeMoonModel && !orangeMoonModel.aspectRatios.includes(normalizedRatio) ? orangeMoonModel.aspectRatios[0] : normalizedRatio;
@@ -124,7 +125,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                 <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
                         {seedanceResolutionOptions.map((item) => {
-                            const disabled = orangeMoonModel ? item.value !== orangeMoonModel.resolution : item.value === "1080p" && isSeedanceFastModel(model);
+                            const disabled = orangeMoonProduct ? !orangeMoonProduct.resolutions.includes(item.value) : item.value === "1080p" && isSeedanceFastModel(model);
                             return (
                                 <OptionPill key={item.value} selected={resolution === item.value} disabled={disabled} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
                                     {item.label}
@@ -132,7 +133,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                             );
                         })}
                     </div>
-                    {!orangeMoonModel && isSeedanceFastModel(model) ? <div className="text-[11px] leading-4 opacity-55">fast 模型不支持 1080p，会自动使用 720p。</div> : null}
+                    {(orangeMoonProduct && !orangeMoonProduct.resolutions.includes("1080p")) || (!orangeMoonProduct && isSeedanceFastModel(model)) ? <div className="text-[11px] leading-4 opacity-55">该模型不支持 1080p。</div> : null}
                 </SettingGroup>
                 <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">

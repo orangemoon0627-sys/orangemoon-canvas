@@ -90,7 +90,7 @@ export const defaultConfig: AiConfig = {
     ],
     model: `${ORANGE_MOON_CHANNEL_ID}::gpt-image-2`,
     imageModel: `${ORANGE_MOON_CHANNEL_ID}::gpt-image-2`,
-    videoModel: `${ORANGE_MOON_CHANNEL_ID}::seedance-2.0-720p-economy`,
+    videoModel: `${ORANGE_MOON_CHANNEL_ID}::seedance-2.0`,
     textModel: "default::gpt-5.5",
     audioModel: `${ORANGE_MOON_CHANNEL_ID}::speech-2.8-hd`,
     audioVoice: "alloy",
@@ -149,7 +149,9 @@ export function guessCapability(name: string): ModelCapability {
 function findChannelModel(config: AiConfig, value: string): { channel: ModelChannel; model: ChannelModel } | null {
     const decoded = decodeChannelModel(value);
     const name = decoded?.model || value;
-    const channel = decoded ? config.channels.find((item) => item.id === decoded.channelId) : config.channels.find((item) => item.models.some((model) => model.name === name));
+    const officialName = canonicalOrangeMoonVideoModel(name);
+    const officialChannel = config.channels.find((item) => item.provider === ORANGE_MOON_PROVIDER && item.models.some((model) => model.name === officialName));
+    const channel = officialChannel || (decoded ? config.channels.find((item) => item.id === decoded.channelId) : config.channels.find((item) => item.models.some((model) => model.name === name)));
     const canonicalName = channel?.provider === ORANGE_MOON_PROVIDER ? canonicalOrangeMoonVideoModel(name) : name;
     const model = channel?.models.find((item) => item.name === canonicalName);
     return channel && model ? { channel, model } : null;
@@ -298,7 +300,7 @@ export function modelOptionName(value: string) {
 
 export function modelOptionLabel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
-    if (!decoded) return value;
+    if (!decoded) return getOrangeMoonModelLabel(value);
     const channel = config.channels.find((item) => item.id === decoded.channelId);
     if (channel?.provider === ORANGE_MOON_PROVIDER) return getOrangeMoonModelLabel(decoded.model);
     return channel ? `${decoded.model}（${channel.name}）` : decoded.model;
@@ -329,7 +331,9 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
 export function resolveModelChannel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     const model = decoded?.model || value;
-    const matched = decoded ? config.channels.find((channel) => channel.id === decoded.channelId) : config.channels.find((channel) => channel.models.some((item) => item.name === model));
+    const officialName = canonicalOrangeMoonVideoModel(model);
+    const official = config.channels.find((channel) => channel.provider === ORANGE_MOON_PROVIDER && channel.models.some((item) => item.name === officialName));
+    const matched = official || (decoded ? config.channels.find((channel) => channel.id === decoded.channelId) : config.channels.find((channel) => channel.models.some((item) => item.name === model)));
     return matched || config.channels[0] || createModelChannel({ id: "default", name: "默认渠道", baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat, models: config.models.map(modelOptionName).map((name) => ({ name, capability: guessCapability(name) })) });
 }
 
