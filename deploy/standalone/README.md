@@ -18,4 +18,6 @@
 5. 将 `Caddyfile.snippet` 合并到 `/etc/caddy/Caddyfile`，依次执行 `caddy validate` 和 `systemctl reload caddy`。
 6. 安装备份 service/timer，并执行一次人工备份验证。
 
+正式入口为 `https://canvas.orangemoon.tech`，`https://canvas.154-12-85-189.sslip.io` 作为同机备用入口保留。
+
 API Key、数据库密码、内部签名密钥、收款信息和管理员凭据不得提交到 GitHub 或写进镜像。
