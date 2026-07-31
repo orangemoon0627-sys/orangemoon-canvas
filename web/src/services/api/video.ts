@@ -5,7 +5,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
+import { canonicalOrangeMoonVideoModel, getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
 import { buildApiUrl, isOrangeMoonManagedConfig, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import { orangeMoonGet, orangeMoonPost } from "./orange-moon-gateway";
@@ -24,6 +24,7 @@ type SeedanceTask = {
     video_url?: string;
 };
 type MetaJingTask = {
+    id?: string;
     task_id?: string;
     state?: string;
     status?: string;
@@ -186,7 +187,7 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
 }
 
 async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const modelName = modelOptionName(selectedModel);
+    const modelName = canonicalOrangeMoonVideoModel(modelOptionName(selectedModel));
     const model = getOrangeMoonVideoModel(modelName);
     if (!model) throw new Error("橙月官方渠道没有登记这个视频模型");
     assertOrangeMoonReferences(model, references, videoReferences, audioReferences);
@@ -205,8 +206,9 @@ async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, 
             { model: modelName, prompt: text, duration, aspect_ratio: aspectRatio, images, videos, audios },
             { signal: options?.signal },
         );
-        if (!created.task_id) throw new Error("MetaJing 接口没有返回任务 ID");
-        return { id: created.task_id, provider: "metajing", model: selectedModel };
+        const taskId = created.id || created.task_id;
+        if (!taskId) throw new Error("橙月平台没有返回视频任务 ID");
+        return { id: taskId, provider: "metajing", model: selectedModel };
     } catch (error) {
         throw new Error(readAxiosError(error, "Seedance 2.0 任务创建失败"));
     }

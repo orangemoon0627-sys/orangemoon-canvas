@@ -51,7 +51,7 @@ export class GenerationService {
         }
         try {
             const result = asRecord(await this.upstream.createVideo(input));
-            const providerTaskId = String(result.id || "").trim();
+            const providerTaskId = providerVideoTaskId(result);
             if (!providerTaskId) throw new ConflictException("Seedance 2.0 没有返回任务号");
             const job = await this.prisma.generationJob.update({ where: { id: reservation.job.id }, data: { providerTaskId, status: GenerationStatus.SUBMITTED, providerState: String(result.state || result.status || "submitted").slice(0, 100) } });
             const outputUrl = videoResultUrl(result);
@@ -59,7 +59,7 @@ export class GenerationService {
                 await this.settle(job, quote.retailMilliCredits);
                 await this.registerVideoAsset(job, outputUrl);
             }
-            return { ...result, id: job.publicId };
+            return publicVideoTaskResult(result, job.publicId);
         } catch (error) {
             await this.release(reservation.job, error);
             throw publicVideoGenerationError(error, input);
@@ -262,6 +262,16 @@ function summarizeSpeech(input: SpeechRequest): Prisma.InputJsonValue {
 
 function hashText(value: string) { return createHash("sha256").update(value).digest("hex"); }
 function asRecord(value: unknown) { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
+export function providerVideoTaskId(result: Record<string, unknown>) {
+    const data = asRecord(result.data);
+    const taskId = [result.id, result.task_id, result.taskId, data.id, data.task_id, data.taskId]
+        .find((value): value is string => typeof value === "string" && Boolean(value.trim()));
+    return taskId?.trim() || "";
+}
+function publicVideoTaskResult(result: Record<string, unknown>, publicId: string) {
+    const { id: _id, task_id: _taskId, taskId: _camelTaskId, ...publicResult } = result;
+    return { ...publicResult, id: publicId };
+}
 function videoResultUrl(result: Record<string, unknown>) { return String(result.result_url || result.video_url || "").trim(); }
 function videoFailed(result: Record<string, unknown>, state: string) { return ["failed", "failure", "cancelled", "canceled", "expired"].includes(state) || (Boolean(result.is_final) && !videoResultUrl(result)); }
 function readResultError(result: Record<string, unknown>) { const error = result.error; return typeof error === "string" ? error : error && typeof error === "object" ? String((error as Record<string, unknown>).message || "") : ""; }

@@ -5,7 +5,7 @@ import { BadGatewayException, ServiceUnavailableException } from "@nestjs/common
 
 import type { PrismaService } from "../prisma/prisma.service";
 import type { LedgerService } from "../wallet/ledger.service";
-import { GenerationService, publicVideoGenerationError, rewriteGeneratedImageUrls } from "./generation.service";
+import { GenerationService, providerVideoTaskId, publicVideoGenerationError, rewriteGeneratedImageUrls } from "./generation.service";
 import type { PricingService } from "./pricing.service";
 import type { ProviderUpstreamService } from "./provider-upstream.service";
 
@@ -58,4 +58,10 @@ test("视频通道缺失时提示已退款和可用替代模型", () => {
     assert.match(error.message, /Seedance 2\.0 720P 标准（15 秒旧配置）/);
     assert.match(error.message, /未扣费，预授权已自动退回/);
     assert.match(error.message, /Seedance 2\.0 720P 经济/);
+});
+
+test("视频创建兼容 MetaJing task_id 响应", () => {
+    assert.equal(providerVideoTaskId({ task_id: "task-metajing-1" }), "task-metajing-1");
+    assert.equal(providerVideoTaskId({ data: { task_id: "task-metajing-2" } }), "task-metajing-2");
+    assert.equal(providerVideoTaskId({ id: "task-openai-style" }), "task-openai-style");
 });
