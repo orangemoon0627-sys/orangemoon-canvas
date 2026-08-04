@@ -12,3 +12,21 @@ description: 当前已接入同步逻辑的第三方提示词仓库
 | https://github.com/YouMind-OpenLab/awesome-gpt-image-2 | 已实现同步逻辑 |
 | https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts | 已实现同步逻辑 |
 | https://github.com/davidwuw0811-boop/awesome-gpt-image2-prompts | 已实现同步逻辑 |
+
+## Agent 创作 Skill
+
+下列仓库不在服务器上安装或执行。橙月画布只参考其 MIT 许可下的静态方法，并在 `canvas-agent/src/creative-skills.ts` 中独立整理为按需读取的内置 Skill；来源固定到已审计 commit，第三方安装脚本、API、支付代码和素材均不进入镜像。
+
+| 内置 Skill | 固定参考来源 | 用途 |
+| --- | --- | --- |
+| `image2-visual-development` | [wuyoscar/GPT-Image2-Skill@ecc9c54](https://github.com/wuyoscar/GPT-Image2-Skill/tree/ecc9c5420c265f6677edc5f4d255bca02497ef71)、[freestylefly/awesome-gpt-image-2@76fcd0e](https://github.com/freestylefly/awesome-gpt-image-2/tree/76fcd0e6b3961ef2b041547aac654f1efd1ef270) | 分离人物 Bible、场景净板、道具和黑白故事板，锁定 Image 2 视觉连续性 |
+| `seedance2-director` | [dexhunter/seedance2-skill@e06c7c6](https://github.com/dexhunter/seedance2-skill/tree/e06c7c63a766d623004a2807881c30685ce517af)、[ZeroLu/awesome-seedance@0632010](https://github.com/ZeroLu/awesome-seedance/tree/0632010e2b9740d8da6230ceca88073c5c6817b5) | 组织参考素材、镜头时间线、运镜、动作、转场、声音和连续性 |
+| `video-prompt-reverse` | [promptlab-image-video-to-prompt@2ccb763](https://github.com/gracech0322-cmd/promptlab-image-video-to-prompt/tree/2ccb763fa86430ffa3516dc10735077fdd2207c9)、[douyin-downloader@8542177](https://github.com/jiji262/douyin-downloader/tree/854217769b9c3596e589e80e26a01f11196c9a48) | 本地视频/抖音链接抽帧，重建视觉指纹、镜头线、Image 2 与 Seedance 提示词 |
+
+Agent 先调用 `creative_skills_list` 读取摘要，任务匹配时才调用 `creative_skill_get` 读取一个完整 Skill，避免每轮上下文都携带大段规则。
+
+## 本地视频反推
+
+仓库内的 [`tools/video-prompt-reverse/README.md`](https://github.com/orangemoon0627-sys/orangemoon-canvas/tree/main/tools/video-prompt-reverse) 提供零模型费用的 FFmpeg 抽帧 CLI。只有显式传入 `--analyze` 并提供独立的服务端环境变量时才会调用视觉模型。抖音下载依赖用户自行准备并审计的下载器，受 Cookie 与平台风控影响；只有链接而没有视频或关键帧时，Agent 不会臆测画面。
+
+视频反推只能重建基于成片的“可复刻提示词”，无法恢复创作者当时输入的原始提示词。

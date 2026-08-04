@@ -77,4 +77,6 @@ test("a project-bound Terra turn cannot see navigation or workbench generation t
     assert.equal(names.includes("canvas_create_generation_flow"), true);
     assert.equal(names.includes("canvas_get_node"), true);
     assert.equal(names.includes("canvas_update_node_text"), true);
+    assert.equal(names.includes("creative_skills_list"), true);
+    assert.equal(names.includes("creative_skill_get"), true);
 });

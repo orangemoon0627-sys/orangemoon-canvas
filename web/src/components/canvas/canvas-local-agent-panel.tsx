@@ -33,7 +33,12 @@ const AGENT_REQUEST_TIMEOUT_MS = 12_000;
 const MANAGED_AGENT = Boolean(MANAGED_CANVAS_AGENT_URL);
 const DEFAULT_AGENT_URL = MANAGED_CANVAS_AGENT_URL || "http://127.0.0.1:17371";
 const AGENT_ASSISTANT_TITLE = MANAGED_CANVAS_AGENT_MODEL ? "Terra" : "Codex";
-const VIBE_STARTERS = ["做一支 25 秒的中国神话斗法短片", "把参考图改成三镜头电影预告", "生成商品主视觉和竖屏广告视频"];
+const VIBE_STARTERS = [
+    { label: "Image 2 视觉开发", prompt: "请调用 creative_skill_get 获取 image2-visual-development，并按该 Skill 为当前题材设计人物设定、无人物场景净板、必要道具和黑白线稿故事板。先读取当前画布与真实生成配置，给出模型、比例、质量、张数、参考图用途和预计积分的审核方案；我确认后再创建节点、连线并执行。" },
+    { label: "Seedance 镜头导演", prompt: "请调用 creative_skill_get 获取 seedance2-director，并按该 Skill 把当前画布已有的成功人物、场景或关键帧组织成 Seedance 视频工作流。先梳理有明确对手、能力和逆转的故事轴，再给出模型产品族、比例、时长、分辨率、参考素材用途、镜头时间线、声音和预计积分；我确认后立即创建节点、连线并执行。" },
+    { label: "视频提示词反推", prompt: "请调用 creative_skill_get 获取 video-prompt-reverse，并按固定输出契约分析我提供的参考视频关键帧：区分观察事实与创意改写，输出视觉指纹、带时间码镜头线、Image 2 关键帧提示词、Seedance 最终提示词、负面约束、不确定项和置信度。若目前只有链接而没有视频或关键帧，请明确需要先用本地反推工具抽帧，不要臆测画面。" },
+    { label: "完整短片工作流", prompt: "请先调用 creative_skill_get 分别读取 image2-visual-development 与 seedance2-director，结合当前画布内容设计最少但完整的短片工作流。先生成并审核人物、场景、必要道具和黑白故事板，再把成功结果接入 Seedance；不要绕过失败依赖。每个付费阶段都展示真实模型配置、预计积分和可审核选项。" },
+];
 const AGENT_CONNECT_STEPS = [
     { title: "方式一：在 Codex 中使用插件", text: "在 Codex app 安装橙月画布兼容的 Infinite Canvas 插件后，插件会自动启动本地 Agent 并带上连接信息。" },
     { title: "方式二：直接运行 Agent", text: "不使用 Codex 插件时，在终端运行下面命令，再回到网页里连接或手动填入 Local URL 和 Connect token。", command: "npx -y @basketikun/canvas-agent" },
@@ -1102,9 +1107,9 @@ function AgentCreativeEmptyState({
                 <div>
                     <div className="mb-3 flex items-center gap-2 text-sm font-medium"><Sparkles className="size-4" />从 Skill 出发，抵达成片</div>
                     <div className="grid grid-cols-2 gap-2">
-                        {VIBE_STARTERS.concat("搭建人物、场景、故事板与视频工作流").map((item) => (
-                            <button key={item} type="button" className="min-h-14 rounded-lg border px-3 py-2 text-left text-xs leading-5 transition hover:bg-black/5 dark:hover:bg-white/5" style={{ borderColor: theme.node.stroke }} onClick={() => onSelectPrompt(item)}>
-                                {item}
+                        {VIBE_STARTERS.map((item) => (
+                            <button key={item.label} type="button" className="min-h-14 rounded-lg border px-3 py-2 text-left text-xs leading-5 transition hover:bg-black/5 dark:hover:bg-white/5" style={{ borderColor: theme.node.stroke }} onClick={() => onSelectPrompt(item.prompt)}>
+                                {item.label}
                             </button>
                         ))}
                     </div>
@@ -1131,15 +1136,15 @@ function AgentCreativeEmptyState({
             <div className="mt-3 text-base font-semibold">{mode === "vibe" ? "创作导演" : "节点助手"}</div>
             {connected ? (
                 <div className="mt-5 grid w-full max-w-sm gap-2">
-                    {(mode === "vibe" ? VIBE_STARTERS : ["整理并对齐当前节点", "检查断开的连线", "修改选中节点的提示词"]).map((item) => (
+                    {(mode === "vibe" ? VIBE_STARTERS : ["整理并对齐当前节点", "检查断开的连线", "修改选中节点的提示词"].map((item) => ({ label: item, prompt: item }))).map((item) => (
                         <button
-                            key={item}
+                            key={item.label}
                             type="button"
                             className="min-h-10 rounded-lg border px-3 py-2 text-left text-sm leading-5 transition hover:-translate-y-px"
                             style={{ borderColor: theme.node.stroke, color: theme.node.text, background: "transparent" }}
-                            onClick={() => onSelectPrompt(item)}
+                            onClick={() => onSelectPrompt(item.prompt)}
                         >
-                            {item}
+                            {item.label}
                         </button>
                     ))}
                 </div>

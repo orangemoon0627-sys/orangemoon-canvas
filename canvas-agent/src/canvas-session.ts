@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { ServerResponse } from "node:http";
 
+import { getCreativeSkill, listCreativeSkills, type CreativeSkillId } from "./creative-skills.js";
 import { type ToolName } from "./schemas.js";
 import { compactCanvasState, editableNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
 import type { AgentAttachment, CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
@@ -171,9 +172,11 @@ export class CanvasSession {
 
     async callTool(name: unknown, rawInput: unknown) {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
-        this.assertBoundCanvas();
         let tool: ToolName = name;
         let input = parseToolInput(tool, rawInput) as Record<string, unknown>;
+        if (tool === "creative_skills_list") return { skills: listCreativeSkills() };
+        if (tool === "creative_skill_get") return { skill: getCreativeSkill(String(input.id) as CreativeSkillId) };
+        this.assertBoundCanvas();
         if (this.boundProjectId && PROJECT_LOCKED_SITE_TOOLS.has(tool)) throw new Error(`当前对话已锁定画布 ${this.boundProjectId}，不能跳转页面或改用独立工作台`);
         if (SITE_TOOLS.has(tool)) {
             if (!this.clients.size) throw new Error("当前没有已连接网页");

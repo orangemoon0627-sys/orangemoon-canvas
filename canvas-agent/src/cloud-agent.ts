@@ -55,6 +55,8 @@ const CLOUD_TOOL_NAMES = [
     "prompts_search",
     "assets_list",
     "assets_add",
+    "creative_skills_list",
+    "creative_skill_get",
 ] satisfies ToolName[];
 const CLOUD_TOOL_NAME_SET = new Set<ToolName>(CLOUD_TOOL_NAMES);
 const PROJECT_LOCKED_TOOL_NAMES = new Set<ToolName>(["site_navigate", "canvas_list_projects", "workbench_image_generate", "workbench_video_generate"]);

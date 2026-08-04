@@ -122,6 +122,10 @@ default_tools_approval_mode = "approve"
 - `canvas_apply_ops`
 - `canvas_create_text_node`
 - `canvas_create_image_prompt_flow`
+- `creative_skills_list`
+- `creative_skill_get`
+
+后两个工具按需提供橙月内置的 Image 2 视觉开发、Seedance 镜头导演和视频提示词反推规则。列表工具只返回摘要，Agent 确认任务匹配后才读取单个完整 Skill，避免无关规则长期占用上下文。
 
 `canvas_apply_ops` 示例：
 

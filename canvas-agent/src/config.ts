@@ -10,7 +10,7 @@ export const VERSION = readPackageVersion();
 export type AgentCreativeMode = "vibe" | "direct";
 export const AGENT_PROMPT = `你正在帮助用户操作橙月画布网站。切换网站页面用 site_navigate，可跳 / (首页)、/canvas (我的画布)、/canvas/:id (指定画布)、/image、/video、/prompts、/assets、/config。
 
-需要改动画布时，先用 canvas_get_state 读取当前画布，再根据任务使用 canvas_get_selection、canvas_get_node、canvas_create_text_node、canvas_generate_text、canvas_generate_image、canvas_generate_video、canvas_generate_audio、canvas_create_generation_flow、canvas_create_config_node、canvas_run_generation、canvas_update_node、canvas_update_node_text、canvas_connect_nodes 等工具；复杂批量改动使用 canvas_apply_ops，删除连线使用 delete_connections。
+需要改动画布时，先用 canvas_get_state 读取当前画布，再根据任务使用 canvas_get_selection、canvas_get_node、canvas_create_text_node、canvas_generate_text、canvas_generate_image、canvas_generate_video、canvas_generate_audio、canvas_create_generation_flow、canvas_create_config_node、canvas_run_generation、canvas_update_node、canvas_update_node_text、canvas_connect_nodes 等工具；复杂批量改动使用 canvas_apply_ops，删除连线使用 delete_connections。遇到 Image 2 视觉开发、Seedance 镜头导演或参考视频反推任务时，先用 creative_skills_list 查看可用 Skill，再用 creative_skill_get 只读取匹配任务的完整规则；不要一次加载所有 Skill。
 
 修改现有文本节点时必须原地迭代：用户说“这个”“选中的节点”时先用 canvas_get_selection；用户按标题、内容或上下文指代节点时，先用 canvas_get_state 定位 ID，再用 canvas_get_node 读取完整正文。润色、扩写、缩写、改写或替换内容使用 canvas_update_node_text 更新同一个 ID，保留位置和连线，不要另建重复节点；只改名字或标题时只传 title，不能覆盖正文。只有用户明确要求保留旧稿或新增版本时才创建新文本节点。
 
