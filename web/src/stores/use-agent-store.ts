@@ -25,10 +25,6 @@ function initialAgentPanelWidth() {
     return window.innerWidth < 1180 ? 380 : 440;
 }
 
-function initialAgentPanelOpen() {
-    return typeof window !== "undefined" && window.innerWidth >= 1024;
-}
-
 type AgentStore = {
     width: number;
     panelOpen: boolean;
@@ -69,12 +65,11 @@ type AgentStore = {
 };
 
 export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
-const INITIAL_AGENT_PANEL_OPEN = initialAgentPanelOpen();
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
     width: initialAgentPanelWidth(),
-    panelOpen: INITIAL_AGENT_PANEL_OPEN,
-    panelMounted: INITIAL_AGENT_PANEL_OPEN,
+    panelOpen: false,
+    panelMounted: false,
     panelClosing: false,
     canvasContext: null,
     url: MANAGED_CANVAS_AGENT_URL || (typeof window === "undefined" ? "http://127.0.0.1:17371" : localStorage.getItem("canvas-agent-url") || "http://127.0.0.1:17371"),

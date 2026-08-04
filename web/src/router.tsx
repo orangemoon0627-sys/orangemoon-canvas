@@ -1,19 +1,37 @@
+import { lazy, Suspense, type ReactNode } from "react";
 import { createBrowserRouter, Outlet } from "react-router-dom";
 
 import { AnalyticsTracker } from "@/components/layout/analytics-tracker";
 import { PlatformAuthGate } from "@/components/auth/platform-auth-gate";
 import UserLayout from "@/layouts/user-layout";
-import AssetsPage from "@/pages/assets";
-import AccountPage from "@/pages/account";
-import AdminPage from "@/pages/admin";
-import CanvasPage from "@/pages/canvas";
-import CanvasProjectPage from "@/pages/canvas/project";
-import ConfigPage from "@/pages/config";
-import HomePage from "@/pages/home";
-import ImagePage from "@/pages/image";
-import NotFound from "@/pages/not-found";
-import PromptsPage from "@/pages/prompts";
-import VideoPage from "@/pages/video";
+
+const AccountPage = lazy(() => import("@/pages/account"));
+const AdminPage = lazy(() => import("@/pages/admin"));
+const AssetsPage = lazy(() => import("@/pages/assets"));
+const CanvasPage = lazy(() => import("@/pages/canvas"));
+const CanvasProjectPage = lazy(() => import("@/pages/canvas/project"));
+const ConfigPage = lazy(() => import("@/pages/config"));
+const HomePage = lazy(() => import("@/pages/home"));
+const ImagePage = lazy(() => import("@/pages/image"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const PromptsPage = lazy(() => import("@/pages/prompts"));
+const VideoPage = lazy(() => import("@/pages/video"));
+
+function LazyPage({ children }: { children: ReactNode }) {
+    return (
+        <Suspense
+            fallback={
+                <div className="grid h-full place-items-center bg-background" aria-label="页面加载中">
+                    <span className="size-6 animate-spin rounded-full border-2 border-stone-300 border-t-[#e9583e] dark:border-stone-700 dark:border-t-[#ff7158]" />
+                </div>
+            }
+        >
+            {children}
+        </Suspense>
+    );
+}
+
+const lazyPage = (children: ReactNode) => <LazyPage>{children}</LazyPage>;
 
 export const router = createBrowserRouter([
     {
@@ -26,17 +44,17 @@ export const router = createBrowserRouter([
             </PlatformAuthGate>
         ),
         children: [
-            { path: "/", element: <HomePage /> },
-            { path: "/image", element: <ImagePage /> },
-            { path: "/video", element: <VideoPage /> },
-            { path: "/assets", element: <AssetsPage /> },
-            { path: "/prompts", element: <PromptsPage /> },
-            { path: "/canvas", element: <CanvasPage /> },
-            { path: "/canvas/:id", element: <CanvasProjectPage /> },
-            { path: "/config", element: <ConfigPage /> },
-            { path: "/account", element: <AccountPage /> },
-            { path: "/admin", element: <AdminPage /> },
+            { path: "/", element: lazyPage(<HomePage />) },
+            { path: "/image", element: lazyPage(<ImagePage />) },
+            { path: "/video", element: lazyPage(<VideoPage />) },
+            { path: "/assets", element: lazyPage(<AssetsPage />) },
+            { path: "/prompts", element: lazyPage(<PromptsPage />) },
+            { path: "/canvas", element: lazyPage(<CanvasPage />) },
+            { path: "/canvas/:id", element: lazyPage(<CanvasProjectPage />) },
+            { path: "/config", element: lazyPage(<ConfigPage />) },
+            { path: "/account", element: lazyPage(<AccountPage />) },
+            { path: "/admin", element: lazyPage(<AdminPage />) },
         ],
     },
-    { path: "*", element: <NotFound /> },
+    { path: "*", element: lazyPage(<NotFound />) },
 ]);
