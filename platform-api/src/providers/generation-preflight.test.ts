@@ -90,7 +90,8 @@ test("视频通道缺失时提示已退款和可用替代模型", () => {
     assert.ok(error instanceof ServiceUnavailableException);
     assert.match(error.message, /Seedance 2\.0（清衍独家）/);
     assert.match(error.message, /未扣费，预授权已自动退回/);
-    assert.match(error.message, /Seedance 2\.0 Fast 720P（独家）/);
+    assert.match(error.message, /Seedance 2\.0 Fast（清衍独家）/);
+    assert.doesNotMatch(error.message, /Fast 720P（独家）/);
 });
 
 test("视频创建兼容 MetaJing task_id 响应", () => {
