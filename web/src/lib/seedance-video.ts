@@ -102,7 +102,7 @@ export function normalizeSeedanceDurationForModel(model: string, value: string) 
     const duration = orangeMoonModel
         ? Math.max(orangeMoonModel.minDuration, Math.min(orangeMoonModel.maxDuration, Math.floor(Number(value) || orangeMoonModel.minDuration)))
         : normalizeSeedanceDuration(value);
-    if (!orangeMoonModel?.fixedDuration && !orangeMoonModel?.allowedDurations?.length && orangeMoonModel?.name !== "Seedance 2.0-fast-720p") return duration;
+    if (!orangeMoonModel?.fixedDuration && !orangeMoonModel?.allowedDurations?.length) return duration;
     return orangeMoonModel.durations.reduce((best, current) => (Math.abs(current - duration) < Math.abs(best - duration) ? current : best), orangeMoonModel.durations[0]);
 }
 

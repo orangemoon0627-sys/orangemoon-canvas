@@ -1,9 +1,9 @@
-export const PROVIDER_CATALOG_VERSION = "orangemoon-provider-v6-exclusive-video";
+export const PROVIDER_CATALOG_VERSION = "orangemoon-provider-v7-three-exclusive-video";
 
 export type ProviderCapability = "image" | "video" | "audio";
 export type ProviderModelVisibility = "public" | "legacy";
 export type ProviderVideoResolution = "480p" | "720p" | "1080p";
-export type ProviderVideoTier = "economy" | "mini" | "fast" | "standard" | "pro";
+export type ProviderVideoTier = "fast" | "standard" | "pro";
 export type ProviderBilling =
     | { unit: "image"; usd: number }
     | { unit: "second"; usd: number }
@@ -38,17 +38,14 @@ export const EXCLUSIVE_VIDEO_MODEL_IDS = [
     "qy-seedance-2.0-fast",
     "qy-seedance-2.0",
     "431-Seedream-2.0",
-    "Seedance 2.0-fast-720p",
 ] as const;
 
 const EXCLUSIVE_VIDEO_MODEL_ID_SET = new Set<string>(EXCLUSIVE_VIDEO_MODEL_IDS);
 const MB = 1024 * 1024;
 const QY_REFERENCES = { images: 9, videos: 3, audios: 3, imageMaxBytes: 12 * MB, videoMaxBytes: 50_000_000, audioMaxBytes: 16 * MB };
 const MODEL_431_REFERENCES = { images: 4, videos: 3, audios: 1, imageMaxBytes: 20_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000 };
-const IMAGE_ONLY_REFERENCES = { images: 9, videos: 0, audios: 0, imageMaxBytes: 12 * MB, videoMaxBytes: 0, audioMaxBytes: 0 };
 const QY_RATIOS = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
 const MODEL_431_RATIOS = [...QY_RATIOS, "9:21"];
-const IMAGE_ONLY_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"];
 
 function videoModel(
     id: (typeof EXCLUSIVE_VIDEO_MODEL_IDS)[number],
@@ -116,16 +113,6 @@ export const PROVIDER_MODELS: ProviderModel[] = [
         recommendedDurations: [4, 5, 10, 15],
         aspectRatios: MODEL_431_RATIOS,
         description: "431 独家通道，支持 4-15 秒、480P/720P/1080P、原生声音及全能参考",
-    }),
-    videoModel("Seedance 2.0-fast-720p", "Seedance 2.0 Fast 720P（独家）", { "720p": 0.1 }, "720p", IMAGE_ONLY_REFERENCES, {
-        tier: "economy",
-        maxPromptChars: 4_000,
-        minDuration: 5,
-        maxDuration: 15,
-        allowedDurations: [5, 10, 15],
-        recommendedDurations: [5, 10, 15],
-        aspectRatios: IMAGE_ONLY_RATIOS,
-        description: "独家 720P 低成本通道，最多 9 张参考图，不支持参考视频或音频",
     }),
     { id: "speech-2.8-hd", label: "MiniMax Speech 2.8 HD", provider: "minimax", capability: "audio", visibility: "public", billing: { unit: "million_characters", usd: 100 }, description: "高保真语音合成，支持停顿、情绪和语气标签" },
     { id: "speech-2.8-turbo", label: "MiniMax Speech 2.8 Turbo", provider: "minimax", capability: "audio", visibility: "public", billing: { unit: "million_characters", usd: 60 }, description: "低成本语音合成，支持停顿、情绪和语气标签" },

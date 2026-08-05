@@ -36,7 +36,7 @@ export const videoRequestSchema = z
     .superRefine((input, context) => {
         const model = findProviderModel(input.model);
         if (!model || model.provider !== "metajing" || model.capability !== "video" || !isExclusiveVideoModelId(input.model)) {
-            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "该视频模型已停用，橙月画布只允许四个独家视频 API" });
+            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "该视频模型已停用，橙月画布只允许三个独家视频 API" });
             return;
         }
         if (!resolveProviderVideoResolution(model, input.resolution)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["resolution"], message: `该模型只支持 ${(model.resolutions || []).join("、")}` });
@@ -44,7 +44,6 @@ export const videoRequestSchema = z
         if (model.fixedDuration && input.duration !== model.fixedDuration) context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: `该模型固定生成 ${model.fixedDuration} 秒` });
         if (!model.fixedDuration && (input.duration < (model.minDuration || 5) || input.duration > (model.maxDuration || 15))) context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: `时长需要在 ${model.minDuration || 5}-${model.maxDuration || 15} 秒之间` });
         if (model.allowedDurations && !model.allowedDurations.includes(input.duration)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: `该模型只支持 ${model.allowedDurations.join("、")} 秒` });
-        if (model.tier === "economy" && ![5, 10, 15].includes(input.duration)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: "720P 经济档只支持 5、10、15 秒" });
         if (!model.aspectRatios?.includes(input.aspect_ratio)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["aspect_ratio"], message: `该模型只支持 ${model.aspectRatios?.join("、")}` });
         const limits = model.references!;
         if (input.images.length > limits.images) context.addIssue({ code: z.ZodIssueCode.custom, path: ["images"], message: `该模型最多支持 ${limits.images} 张参考图` });

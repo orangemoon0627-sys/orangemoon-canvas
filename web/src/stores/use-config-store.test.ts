@@ -18,11 +18,10 @@ test("hides custom models that duplicate an official product or legacy alias", (
 
     const options = selectableModelsByCapability({ ...defaultConfig, channels: [official, custom] }, "video");
 
-    assert.equal(options.length, 5);
+    assert.equal(options.length, 4);
     assert.ok(options.includes(encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.0-fast")));
     assert.ok(options.includes(encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.0")));
     assert.ok(options.includes(encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "431-Seedream-2.0")));
-    assert.ok(options.includes(encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "Seedance 2.0-fast-720p")));
     assert.ok(options.includes(encodeChannelModel("custom", "veo-custom-preview")));
     assert.ok(!options.includes(encodeChannelModel("custom", "seedance-2.0-720p-economy")));
     assert.ok(!options.includes(encodeChannelModel("custom", "mg-seedance2.0 -720p pro")));
@@ -42,11 +41,15 @@ test("migrates duplicate custom selections to the official product id", () => {
 
     assert.equal(
         normalizeModelOptionValue(encodeChannelModel("custom", "seedance-2.0-720p-economy"), channels),
-        encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "Seedance 2.0-fast-720p"),
+        encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.0-fast"),
     );
     assert.equal(
         normalizeModelOptionValue(encodeChannelModel("custom", "mg-seedance2.0 -720p pro"), channels),
         encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.0"),
+    );
+    assert.equal(
+        normalizeModelOptionValue("Seedance 2.0-fast-720p", channels),
+        encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.0-fast"),
     );
 });
 

@@ -6,14 +6,13 @@ export const ORANGE_MOON_VIDEO_MODEL_IDS = [
     "qy-seedance-2.0-fast",
     "qy-seedance-2.0",
     "431-Seedream-2.0",
-    "Seedance 2.0-fast-720p",
 ] as const;
 
 export type OrangeMoonModelCapability = "image" | "video" | "audio";
 export type OrangeMoonModel = { name: string; capability: OrangeMoonModelCapability };
 export type OrangeMoonVideoProductName = (typeof ORANGE_MOON_VIDEO_MODEL_IDS)[number];
 export type OrangeMoonVideoResolution = "480p" | "720p" | "1080p";
-export type OrangeMoonVideoTier = "economy" | "fast" | "standard" | "pro";
+export type OrangeMoonVideoTier = "fast" | "standard" | "pro";
 export type OrangeMoonVideoModel = {
     name: OrangeMoonVideoProductName;
     label: string;
@@ -46,7 +45,6 @@ export type OrangeMoonVideoProduct = {
 const MB = 1024 * 1024;
 const qyReferences = { images: 9, videos: 3, audios: 3, imageMaxBytes: 12 * MB, videoMaxBytes: 50_000_000, audioMaxBytes: 16 * MB };
 const model431References = { images: 4, videos: 3, audios: 1, imageMaxBytes: 20_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000 };
-const imageOnlyReferences = { images: 9, videos: 0, audios: 0, imageMaxBytes: 12 * MB, videoMaxBytes: 0, audioMaxBytes: 0 };
 const qyRatios = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
 
 export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
@@ -91,20 +89,6 @@ export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
         aspectRatios: [...qyRatios, "9:21"],
         references: model431References,
     },
-    {
-        name: "Seedance 2.0-fast-720p",
-        label: "Seedance 2.0 Fast 720P（独家）",
-        tier: "economy",
-        resolutions: ["720p"],
-        defaultResolution: "720p",
-        rates: { "720p": 0.1 },
-        minDuration: 5,
-        maxDuration: 15,
-        allowedDurations: [5, 10, 15],
-        durations: [5, 10, 15],
-        aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
-        references: imageOnlyReferences,
-    },
 ];
 
 export const ORANGE_MOON_MODELS: OrangeMoonModel[] = [
@@ -122,7 +106,9 @@ const LEGACY_TO_CURRENT: Record<string, OrangeMoonVideoProductName> = {
     "seedance-2.0-720p-mini": "qy-seedance-2.0-fast",
     "seedance-2.0-480p-fast": "qy-seedance-2.0-fast",
     "seedance-2.0-720p-fast": "qy-seedance-2.0-fast",
-    "seedance-2.0-720p-economy": "Seedance 2.0-fast-720p",
+    "seedance-2.0-720p-economy": "qy-seedance-2.0-fast",
+    "Seedance 2.0-fast-720p": "qy-seedance-2.0-fast",
+    "seedance 2.0-fast-720p": "qy-seedance-2.0-fast",
     "seedance-2.0-480p-standard": "qy-seedance-2.0",
     "seedance-2.0-720p-standard": "qy-seedance-2.0",
     "seedance-2.0-1080p-standard": "qy-seedance-2.0",

@@ -161,7 +161,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                             </OptionPill>
                         ))}
                     </div>
-                    {orangeMoonModel?.fixedDuration || orangeMoonModel?.allowedDurations?.length || orangeMoonModel?.name === "Seedance 2.0-fast-720p" ? null : <NumberInput value={String(duration)} min={orangeMoonModel?.minDuration ?? -1} max={orangeMoonModel?.maxDuration ?? 15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
+                    {orangeMoonModel?.fixedDuration || orangeMoonModel?.allowedDurations?.length ? null : <NumberInput value={String(duration)} min={orangeMoonModel?.minDuration ?? -1} max={orangeMoonModel?.maxDuration ?? 15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
                 </SettingGroup>
                 {orangeMoonModel ? null : (
                     <SettingGroup title="输出" color={theme.node.muted}>

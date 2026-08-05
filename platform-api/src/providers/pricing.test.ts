@@ -24,11 +24,10 @@ test("MetaJing 按额度 1:1、MiniMax 按 7.3 汇率分别计价", () => {
     assert.equal(audio.retailMilliCredits, 723n);
 });
 
-test("四个独家视频 API 按型号、分辨率和时长计费", () => {
+test("三个独家视频 API 按型号、分辨率和时长计费", () => {
     const qyFast = findProviderModel("qy-seedance-2.0-fast")!;
     const qy = findProviderModel("qy-seedance-2.0")!;
     const model431 = findProviderModel("431-Seedream-2.0")!;
-    const economy = findProviderModel("Seedance 2.0-fast-720p")!;
 
     assert.equal(pricing.quote(qyFast, 5, "480p").retailCredits, "1.375");
     assert.equal(pricing.quote(qyFast, 5, "720p").retailCredits, "1.65");
@@ -36,12 +35,11 @@ test("四个独家视频 API 按型号、分辨率和时长计费", () => {
     assert.equal(pricing.quote(qy, 15, "1080p").retailCredits, "14.85");
     assert.equal(pricing.quote(model431, 4, "480p").retailCredits, "0.977");
     assert.equal(pricing.quote(model431, 15, "720p").retailCredits, "5.322");
-    assert.equal(pricing.quote(economy, 15, "720p").retailCredits, "2.475");
 });
 
 test("不支持的分辨率不能报价", () => {
-    const economy = findProviderModel("Seedance 2.0-fast-720p")!;
-    assert.throws(() => pricing.quote(economy, 5, "1080p"), /不支持 1080p 分辨率/);
+    const qyFast = findProviderModel("qy-seedance-2.0-fast")!;
+    assert.throws(() => pricing.quote(qyFast, 5, "1080p"), /不支持 1080p 分辨率/);
 });
 
 test("平台统一使用 1.65 倍售价系数", () => {

@@ -29,13 +29,11 @@ test("未指定分辨率时使用独家模型的默认分辨率", () => {
     assert.equal(request.payload.resolution, "720p");
 });
 
-test("旧视频模型和不支持的分辨率都不能进入上游", () => {
-    assert.throws(
-        () => videoUpstreamRequest({ ...baseInput, model: "mg-seedance2.0 -720p fast" }, "test-key"),
-        (error: unknown) => error instanceof BadRequestException && /已停用/.test(error.message),
-    );
-    assert.throws(
-        () => videoUpstreamRequest({ ...baseInput, model: "Seedance 2.0-fast-720p", resolution: "1080p" }, "test-key"),
-        (error: unknown) => error instanceof BadRequestException && /不支持 1080p/.test(error.message),
-    );
+test("旧视频模型和已删除的独家 720P 型号都不能进入上游", () => {
+    for (const model of ["mg-seedance2.0 -720p fast", "Seedance 2.0-fast-720p"]) {
+        assert.throws(
+            () => videoUpstreamRequest({ ...baseInput, model, resolution: "720p" }, "test-key"),
+            (error: unknown) => error instanceof BadRequestException && /已停用/.test(error.message),
+        );
+    }
 });

@@ -14,7 +14,8 @@ test("lists creative skill summaries without loading full instructions", () => {
 test("returns a pinned and licensed creative skill", () => {
     const skill = getCreativeSkill("seedance2-director");
     assert.match(skill.instructions, /2 至 5 个/);
-    assert.match(skill.instructions, /四个真实独家 API/);
+    assert.match(skill.instructions, /三个真实独家 API/);
+    assert.match(skill.instructions, /不要创建、报价或调用 Seedance 2\.0-fast-720p/);
     assert.doesNotMatch(skill.instructions, /Seedance 2\.0 Mini/);
     assert.equal(skill.sources.every((source) => source.license === "MIT" && /^[a-f0-9]{40}$/.test(source.commit)), true);
 });

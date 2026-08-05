@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-+ [调整] 官方视频目录严格收敛为 `qy-seedance-2.0-fast`、`qy-seedance-2.0`、`431-Seedream-2.0`、`Seedance 2.0-fast-720p` 四个独家 API；旧 MG/CC/Mini/Pro 型号不再展示、报价、预授权或调用上游。
++ [调整] 官方视频目录严格收敛为 `qy-seedance-2.0-fast`、`qy-seedance-2.0`、`431-Seedream-2.0` 三个独家 API；`Seedance 2.0-fast-720p` 与旧 MG/CC/Mini/Pro 型号不再展示、报价、预授权或调用上游。
 + [优化] 视频提示词反推首轮视觉分析最多发送 8 帧，并在 Agent 输入区增加复用最近反推结果的一键原创改写，避免重复抽帧和逐镜照搬。
 + [新增] Agent 增加按需加载的 Image 2 视觉开发、Seedance 2.0 镜头导演和视频提示词反推 Skill，并提供本地视频/抖音链接 FFmpeg 抽帧与可选结构化视觉分析工具。
 + [新增] 画布项目、节点连线、创作上下文和媒体文件支持账户级云端持久化；首次登录自动归户旧浏览器项目，跨设备可恢复，并将 PostgreSQL 与媒体卷一并纳入每日备份。

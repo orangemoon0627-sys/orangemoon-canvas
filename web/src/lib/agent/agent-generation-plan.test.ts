@@ -41,9 +41,9 @@ test("builds editable image and video review items from a workflow", () => {
 
 test("updates generated config metadata before run_generation", () => {
     const ops: CanvasAgentOp[] = [{ type: "run_generation", nodeId: "existing", mode: "video" }];
-    const next = updateAgentGenerationOps(ops, "existing", { model: "Seedance 2.0-fast-720p", seconds: "10" });
+    const next = updateAgentGenerationOps(ops, "existing", { model: "qy-seedance-2.0-fast", seconds: "10" });
     assert.deepEqual(next, [
-        { type: "update_node", id: "existing", metadata: { model: "Seedance 2.0-fast-720p", seconds: "10" } },
+        { type: "update_node", id: "existing", metadata: { model: "qy-seedance-2.0-fast", seconds: "10" } },
         { type: "run_generation", nodeId: "existing", mode: "video" },
     ]);
 });
