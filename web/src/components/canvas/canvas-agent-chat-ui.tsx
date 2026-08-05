@@ -5,7 +5,7 @@ import { Streamdown } from "streamdown";
 
 import { isPlainEnterKey } from "@/lib/keyboard-event";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { canonicalOrangeMoonVideoModel, getOrangeMoonModelLabel } from "@/lib/orange-moon-provider";
+import { getOrangeMoonModelLabel } from "@/lib/orange-moon-provider";
 import type { LocalUser } from "@/stores/use-user-store";
 import type { AgentWorkflowPreview, AgentWorkflowPreviewStage } from "@/lib/agent/agent-workflow-preview";
 import type { AgentGenerationPlanItem } from "@/lib/agent/agent-generation-plan";
@@ -237,19 +237,26 @@ function AgentGenerationReviewPanel({ review, theme }: { review: AgentGeneration
 function AgentGenerationReviewRow({ item, quoteCredits, catalog, theme, onChange }: { item: AgentGenerationPlanItem; quoteCredits?: string; catalog: ProviderCatalog | null; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onChange: AgentGenerationReview["onChange"] }) {
     const models = (catalog?.models || []).filter((model) => model.capability === item.mode);
     const selectedModel = models.find((model) => model.id === item.model);
-    const selectedProduct = item.mode === "video" ? selectedModel?.product || canonicalOrangeMoonVideoModel(item.model) : item.model;
-    const videoProducts = Array.from(new Map(models.filter((model) => model.product).map((model) => [model.product!, { value: model.product!, label: getOrangeMoonModelLabel(model.product!) }])).values());
-    const modelOptions = item.mode === "video" ? videoProducts : [...(selectedModel || !item.model ? [] : [{ value: item.model, label: getOrangeMoonModelLabel(item.model) }]), ...models.map((model) => ({ value: model.id, label: model.label }))];
+    const modelOptions = [...(selectedModel || !item.model ? [] : [{ value: item.model, label: getOrangeMoonModelLabel(item.model) }]), ...models.map((model) => ({ value: model.id, label: model.label }))];
     const ratios = item.mode === "video" ? selectedModel?.aspectRatios || ["16:9", "9:16"] : ["1:1", "16:9", "9:16", "4:3", "3:4"];
-    const durations = selectedModel?.fixedDuration ? [selectedModel.fixedDuration] : selectedModel?.allowedDurations || selectedModel?.recommendedDurations || [5, 10, 15];
+    const durations = selectedModel?.fixedDuration
+        ? [selectedModel.fixedDuration]
+        : selectedModel?.allowedDurations?.length
+          ? selectedModel.allowedDurations
+          : selectedModel?.minDuration && selectedModel?.maxDuration
+            ? Array.from({ length: selectedModel.maxDuration - selectedModel.minDuration + 1 }, (_, index) => selectedModel.minDuration! + index)
+            : selectedModel?.recommendedDurations || [5, 10, 15];
     const changeModel = (model: string) => {
-        const productModels = item.mode === "video" ? models.filter((entry) => entry.product === model) : models;
-        const next = item.mode === "video" ? productModels.find((entry) => entry.resolution === item.resolution) || productModels.find((entry) => entry.resolution === "720p") || productModels[0] : models.find((entry) => entry.id === model);
-        const nextSeconds = next?.fixedDuration || (next?.allowedDurations?.includes(item.seconds) ? item.seconds : next?.allowedDurations?.[0]) || item.seconds;
+        const next = models.find((entry) => entry.id === model);
+        const nextSeconds = next?.fixedDuration
+            || (next?.allowedDurations?.includes(item.seconds) ? item.seconds : next?.allowedDurations?.[0])
+            || Math.min(next?.maxDuration || item.seconds, Math.max(next?.minDuration || item.seconds, item.seconds));
         const nextSize = next?.aspectRatios?.includes(item.size) ? item.size : next?.aspectRatios?.[0] || item.size;
-        onChange(item.nodeId, { model: next?.id || model, ...(item.mode === "video" ? { seconds: String(nextSeconds), size: nextSize, vquality: next?.resolution?.replace("p", "") } : {}) });
+        const resolutions = next?.resolutions || (next?.resolution ? [next.resolution] : []);
+        const nextResolution = resolutions.includes(item.resolution as "480p" | "720p" | "1080p") ? item.resolution : next?.defaultResolution || next?.resolution || item.resolution;
+        onChange(item.nodeId, { model: next?.id || model, ...(item.mode === "video" ? { seconds: String(nextSeconds), size: nextSize, vquality: nextResolution.replace("p", "") } : {}) });
     };
-    const resolutionOptions = item.mode === "video" ? models.filter((entry) => entry.product === selectedProduct && entry.resolution).map((entry) => ({ value: entry.resolution!, label: entry.resolution!.toUpperCase(), model: entry.id })) : [];
+    const resolutionOptions = item.mode === "video" ? (selectedModel?.resolutions || (selectedModel?.resolution ? [selectedModel.resolution] : [])).map((resolution) => ({ value: resolution, label: resolution.toUpperCase() })) : [];
     return (
         <div className="py-3 first:border-t" style={{ borderColor: theme.node.stroke }}>
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -258,7 +265,7 @@ function AgentGenerationReviewRow({ item, quoteCredits, catalog, theme, onChange
             </div>
             <div className="grid grid-cols-2 gap-2">
                 <LabeledControl label="模型">
-                    <Select size="small" className="w-full" value={selectedProduct} options={modelOptions} onChange={changeModel} />
+                    <Select size="small" className="w-full" value={selectedModel?.id || item.model} options={modelOptions} onChange={changeModel} />
                 </LabeledControl>
                 {item.mode === "audio" ? (
                     <LabeledControl label="计费文本"><div className="flex h-6 items-center text-xs">约 {item.promptLength} 字符</div></LabeledControl>
@@ -275,7 +282,7 @@ function AgentGenerationReviewRow({ item, quoteCredits, catalog, theme, onChange
                 ) : item.mode === "video" ? (
                     <>
                         <LabeledControl label="时长"><Select size="small" className="w-full" value={item.seconds} options={durations.map((seconds) => ({ value: seconds, label: `${seconds} 秒` }))} onChange={(seconds) => onChange(item.nodeId, { seconds: String(seconds) })} /></LabeledControl>
-                        <LabeledControl label="清晰度"><Select size="small" className="w-full" value={selectedModel?.resolution || item.resolution} options={resolutionOptions} onChange={(resolution) => { const next = resolutionOptions.find((option) => option.value === resolution); onChange(item.nodeId, { vquality: resolution.replace("p", ""), ...(next ? { model: next.model } : {}) }); }} /></LabeledControl>
+                        <LabeledControl label="清晰度"><Select size="small" className="w-full" value={item.resolution} options={resolutionOptions} onChange={(resolution) => onChange(item.nodeId, { vquality: resolution.replace("p", "") })} /></LabeledControl>
                     </>
                 ) : null}
             </div>

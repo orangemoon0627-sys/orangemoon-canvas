@@ -16,6 +16,11 @@ import reverse_video_prompt as reverse
 
 
 class ReverseVideoPromptTests(unittest.TestCase):
+    def test_defaults_to_eight_frame_analysis_feedback(self) -> None:
+        args = reverse.parse_args(["sample.mp4"])
+        self.assertEqual(args.profile, "standard")
+        self.assertEqual(args.analysis_frame_limit, 8)
+
     def test_extracts_douyin_url_from_share_text(self) -> None:
         source = "8.41 复制口令 https://v.douyin.com/lg8Sue_MesI/ 直接观看！"
         self.assertEqual(reverse.extract_url(source), "https://v.douyin.com/lg8Sue_MesI/")
@@ -130,6 +135,22 @@ class ReverseVideoPromptTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+
+    def test_rendered_markdown_separates_reconstruction_from_original_rewrite(self) -> None:
+        result = {
+            "summary": "测试片",
+            "visual_fingerprint": {},
+            "timeline": [],
+            "image2_keyframes": [],
+            "seedance_prompt": "参考片结构提示词",
+            "negative_constraints": [],
+            "uncertainties": [],
+            "overall_confidence": 0.8,
+        }
+        markdown = reverse.render_seedance_markdown(result, {"frames": [{"id": "frame-001"}]})
+        self.assertIn("## 原创改写建议", markdown)
+        self.assertIn("至少替换", markdown)
+        self.assertIn("无需重新下载视频或抽帧", markdown)
 
 
 if __name__ == "__main__":

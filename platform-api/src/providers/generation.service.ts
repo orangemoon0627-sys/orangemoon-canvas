@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { PrismaService } from "../prisma/prisma.service";
 import { LedgerService } from "../wallet/ledger.service";
-import { findProviderModel } from "./provider-catalog";
+import { findProviderModel, isExclusiveVideoModelId, resolveProviderVideoResolution } from "./provider-catalog";
 import { PricingService, serializeQuote } from "./pricing.service";
 import { ProviderUpstreamService } from "./provider-upstream.service";
 import { imageRequestSchema, minimaxSpeechSchema, videoRequestSchema, type ImageRequest, type SpeechRequest, type VideoRequest } from "./provider-schemas";
@@ -56,16 +56,20 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
     }
 
     async createVideo(userId: string, idempotencyKey: string, input: VideoRequest) {
-        const model = findProviderModel(input.model)!;
+        const model = findProviderModel(input.model);
+        if (!model || model.capability !== "video" || !isExclusiveVideoModelId(input.model)) throw new BadRequestException("该视频模型已停用，未调用上游且不会扣费");
+        const resolution = resolveProviderVideoResolution(model, input.resolution);
+        if (!resolution) throw new BadRequestException(`${model.label} 不支持 ${input.resolution || "当前"} 分辨率`);
+        const normalizedInput = { ...input, resolution };
         this.upstream.assertConfigured(model.provider);
-        const quote = this.pricing.quote(model, input.duration);
-        const reservation = await this.reserve(userId, idempotencyKey, "video", input.model, quote, summarizeVideo(input));
+        const quote = this.pricing.quote(model, normalizedInput.duration, resolution);
+        const reservation = await this.reserve(userId, idempotencyKey, "video", normalizedInput.model, quote, summarizeVideo(normalizedInput));
         if (!reservation.created) {
             if (reservation.job.status === GenerationStatus.SUBMITTED || reservation.job.status === GenerationStatus.SUCCEEDED) return { id: reservation.job.publicId, state: reservation.job.providerState || "submitted" };
             throw new ConflictException("这个幂等请求已经处理且不能再次提交");
         }
         try {
-            const result = asRecord(await this.upstream.createVideo(input));
+            const result = asRecord(await this.upstream.createVideo(normalizedInput));
             const providerTaskId = providerVideoTaskId(result);
             if (!providerTaskId) throw new ConflictException("Seedance 2.0 没有返回任务号");
             const job = await this.prisma.generationJob.update({ where: { id: reservation.job.id }, data: { providerTaskId, status: GenerationStatus.SUBMITTED, providerState: String(result.state || result.status || "submitted").slice(0, 100) } });
@@ -77,7 +81,7 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
             return publicVideoTaskResult(result, job.publicId);
         } catch (error) {
             await this.release(reservation.job, error);
-            throw publicVideoGenerationError(error, input);
+            throw publicVideoGenerationError(error, normalizedInput);
         }
     }
 
@@ -302,7 +306,7 @@ function summarizeImage(input: ImageRequest): Prisma.InputJsonValue {
 }
 
 function summarizeVideo(input: VideoRequest): Prisma.InputJsonValue {
-    return { promptHash: hashText(input.prompt), promptLength: input.prompt.length, duration: input.duration, aspectRatio: input.aspect_ratio, imageReferences: input.images.length, videoReferences: input.videos.length, audioReferences: input.audios.length };
+    return { promptHash: hashText(input.prompt), promptLength: input.prompt.length, duration: input.duration, resolution: input.resolution, aspectRatio: input.aspect_ratio, imageReferences: input.images.length, videoReferences: input.videos.length, audioReferences: input.audios.length };
 }
 
 function summarizeSpeech(input: SpeechRequest): Prisma.InputJsonValue {
@@ -330,6 +334,6 @@ export function publicVideoGenerationError(error: unknown, input: Pick<VideoRequ
     const message = error instanceof Error ? error.message : String(error || "");
     if (!/no available channel for model/i.test(message)) return error;
     const selected = findProviderModel(input.model);
-    const fallback = input.videos.length || input.audios.length ? "Seedance 2.0 720P 标准" : "Seedance 2.0 720P 经济";
+    const fallback = input.videos.length || input.audios.length ? "Seedance 2.0（431 独家）" : "Seedance 2.0 Fast 720P（独家）";
     return new ServiceUnavailableException(`MetaJing 当前没有为「${selected?.label || input.model}」开放生成通道。本次未扣费，预授权已自动退回；请切换到「${fallback}」后重试。`);
 }

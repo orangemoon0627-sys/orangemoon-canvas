@@ -5,7 +5,7 @@ import type { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { formatMilliCredits } from "../common/money";
-import { findProviderModel, METAJING_IMAGE_SIZES, PROVIDER_CATALOG_VERSION, PUBLIC_PROVIDER_MODELS, type ProviderModel } from "./provider-catalog";
+import { findProviderModel, METAJING_IMAGE_SIZES, PROVIDER_CATALOG_VERSION, PUBLIC_PROVIDER_MODELS, resolveProviderVideoResolution, type ProviderModel } from "./provider-catalog";
 import { GenerationService } from "./generation.service";
 import { PRICE_ROUNDING, PricingService } from "./pricing.service";
 import { ProviderUpstreamService } from "./provider-upstream.service";
@@ -27,11 +27,14 @@ export class ProviderController {
             providers: this.upstream.status(),
             image: { maxCount: 4, maxReferences: 1, sizes: METAJING_IMAGE_SIZES },
             models: PUBLIC_PROVIDER_MODELS.map((model) => {
-                const { upstreamModel: _upstreamModel, upstreamSource: _upstreamSource, ...publicModel } = model;
+                const { billingByResolution, ...publicModel } = model;
+                const resolutionExamples = this.pricing.resolutionExamples(model);
                 return {
                     ...publicModel,
                     billing: showCost ? model.billing : { unit: model.billing.unit },
-                    examples: this.pricing.examples(model).map((example) => showCost ? example : { requestedQuantity: example.requestedQuantity, quantity: example.quantity, unit: example.unit, billingUnit: example.billingUnit, retailMilliCredits: example.retailMilliCredits, retailCredits: example.retailCredits }),
+                    ...(showCost && billingByResolution ? { billingByResolution } : {}),
+                    examples: this.pricing.examples(model, model.defaultResolution).map((example) => publicPriceExample(example, showCost)),
+                    ...(resolutionExamples ? { resolutionExamples: Object.fromEntries(Object.entries(resolutionExamples).map(([resolution, examples]) => [resolution, examples.map((example) => publicPriceExample(example, showCost))])) } : {}),
                 };
             }),
         };
@@ -48,13 +51,16 @@ export class ProviderController {
             if (!model) throw new BadRequestException(`第 ${index + 1} 项模型不在官方目录中`);
             const quantity = Number(item.quantity);
             validateQuoteQuantity(model, quantity, index);
-            const quote = this.pricing.quote(model, quantity);
+            const requestedResolution = typeof item.resolution === "string" ? item.resolution : undefined;
+            const resolution = resolveProviderVideoResolution(model, requestedResolution);
+            if (model.capability === "video" && !resolution) throw new BadRequestException(`第 ${index + 1} 项模型只支持 ${(model.resolutions || []).join("、")}`);
+            const quote = this.pricing.quote(model, quantity, resolution);
             return {
                 id: String(item.id || index),
                 model: model.id,
                 label: model.label,
                 capability: model.capability,
-                resolution: model.resolution,
+                resolution,
                 requestedQuantity: quantity,
                 quantity: quote.quantity,
                 billingUnit: quote.billingUnit,
@@ -129,6 +135,10 @@ export class ProviderController {
             })),
         };
     }
+}
+
+function publicPriceExample<T extends { requestedQuantity: number; quantity: number; unit: string; billingUnit: string; retailMilliCredits: string; retailCredits: string }>(example: T, showCost: boolean) {
+    return showCost ? example : { requestedQuantity: example.requestedQuantity, quantity: example.quantity, unit: example.unit, billingUnit: example.billingUnit, retailMilliCredits: example.retailMilliCredits, retailCredits: example.retailCredits };
 }
 
 function validateQuoteQuantity(model: ProviderModel, quantity: number, index: number) {

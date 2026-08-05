@@ -14,6 +14,8 @@ test("lists creative skill summaries without loading full instructions", () => {
 test("returns a pinned and licensed creative skill", () => {
     const skill = getCreativeSkill("seedance2-director");
     assert.match(skill.instructions, /2 至 5 个/);
+    assert.match(skill.instructions, /四个真实独家 API/);
+    assert.doesNotMatch(skill.instructions, /Seedance 2\.0 Mini/);
     assert.equal(skill.sources.every((source) => source.license === "MIT" && /^[a-f0-9]{40}$/.test(source.commit)), true);
 });
 
@@ -25,4 +27,6 @@ test("serves creative skills without requiring a connected canvas", async () => 
     const selected = await session.callTool("creative_skill_get", { id: "video-prompt-reverse" }) as { skill: { id: string; instructions: string } };
     assert.equal(selected.skill.id, "video-prompt-reverse");
     assert.match(selected.skill.instructions, /不能恢复创作者当时输入的原始提示词/);
+    assert.match(selected.skill.instructions, /最多选择 8 帧进入视觉分析/);
+    assert.match(selected.skill.instructions, /至少替换五类/);
 });

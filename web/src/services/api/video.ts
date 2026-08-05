@@ -192,13 +192,13 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
 }
 
 async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const productName = canonicalOrangeMoonVideoModel(modelOptionName(selectedModel));
-    const model = getOrangeMoonVideoModel(productName, config.vquality);
+    const modelName = canonicalOrangeMoonVideoModel(modelOptionName(selectedModel));
+    const model = getOrangeMoonVideoModel(modelName, config.vquality);
     if (!model) throw new Error("橙月官方渠道没有登记这个视频模型");
     assertOrangeMoonReferences(model, references, videoReferences, audioReferences);
     const ratio = normalizeSeedanceRatio(config.size);
     const aspectRatio = model.aspectRatios.includes(ratio) ? ratio : model.aspectRatios[0];
-    const duration = normalizeSeedanceDurationForModel(productName, config.videoSeconds);
+    const duration = normalizeSeedanceDurationForModel(modelName, config.videoSeconds);
     const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
     const [images, videos, audios] = await Promise.all([
         Promise.all(references.map((image) => resolveOrangeMoonImageUrl(image))),
@@ -208,7 +208,7 @@ async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, 
     try {
         const created = await orangeMoonPost<MetaJingTask>(
             "/metajing/v1/video/generations",
-            { model: model.name, prompt: text, duration, aspect_ratio: aspectRatio, images, videos, audios },
+            { model: model.name, prompt: text, duration, resolution: model.resolution, aspect_ratio: aspectRatio, images, videos, audios },
             { signal: options?.signal },
         );
         const taskId = created.id || created.task_id;

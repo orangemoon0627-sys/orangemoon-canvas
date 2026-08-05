@@ -119,7 +119,12 @@ export function synchronizeAgentGenerationOps(ops: CanvasAgentOp[] | undefined, 
 }
 
 export function generationQuoteItems(items: AgentGenerationPlanItem[]) {
-    return items.map((item) => ({ id: item.id, model: item.model, quantity: item.mode === "image" ? item.count : item.mode === "video" ? item.seconds : item.promptLength }));
+    return items.map((item) => ({
+        id: item.id,
+        model: item.model,
+        quantity: item.mode === "image" ? item.count : item.mode === "video" ? item.seconds : item.promptLength,
+        ...(item.mode === "video" ? { resolution: item.resolution } : {}),
+    }));
 }
 
 function modeFromNode(node: CanvasNodeData | undefined): CanvasGenerationMode | undefined {

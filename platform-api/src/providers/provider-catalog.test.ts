@@ -1,24 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { findProviderModel, PROVIDER_MODELS, PUBLIC_PROVIDER_MODELS } from "./provider-catalog";
+import {
+    EXCLUSIVE_VIDEO_MODEL_IDS,
+    findProviderModel,
+    providerBilling,
+    PROVIDER_MODELS,
+    PUBLIC_PROVIDER_MODELS,
+    resolveProviderVideoResolution,
+} from "./provider-catalog";
 
-test("公开目录只展示合并后的产品档位，旧型号仍可执行", () => {
+test("公开目录严格只保留四个独家视频 API", () => {
     const publicVideos = PUBLIC_PROVIDER_MODELS.filter((model) => model.capability === "video");
 
-    assert.equal(PROVIDER_MODELS.filter((model) => model.capability === "video").length, 31);
-    assert.equal(publicVideos.length, 7);
-    assert.deepEqual(publicVideos.map((model) => `${model.resolution}:${model.tier}`), [
-        "480p:mini",
-        "480p:fast",
-        "480p:pro",
-        "720p:mini",
-        "720p:fast",
-        "720p:pro",
-        "1080p:pro",
-    ]);
-    assert.deepEqual(new Set(publicVideos.map((model) => model.product)), new Set(["seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini"]));
-    assert.ok(publicVideos.every((model) => !/(清衍|独家|\bCC\b|\bMG\b)/i.test(model.label)));
-    assert.ok(publicVideos.every((model) => /^seedance-2\.0-/.test(model.id)));
-    assert.equal(findProviderModel("mg-seedance2.0 -720p-gz-15s")?.visibility, "legacy");
+    assert.equal(PROVIDER_MODELS.filter((model) => model.capability === "video").length, 4);
+    assert.deepEqual(publicVideos.map((model) => model.id), [...EXCLUSIVE_VIDEO_MODEL_IDS]);
+    assert.ok(publicVideos.every((model) => model.exclusive && model.visibility === "public"));
+    assert.equal(findProviderModel("mg-seedance2.0 -720p fast"), undefined);
+    assert.equal(findProviderModel("431-Seedream-2.0-fast"), undefined);
+});
+
+test("独家视频 API 按各自支持的分辨率选择真实费率", () => {
+    const qyFast = findProviderModel("qy-seedance-2.0-fast")!;
+    const qy = findProviderModel("qy-seedance-2.0")!;
+    const model431 = findProviderModel("431-Seedream-2.0")!;
+    const economy = findProviderModel("Seedance 2.0-fast-720p")!;
+
+    assert.deepEqual(qyFast.resolutions, ["480p", "720p"]);
+    assert.equal(providerBilling(qyFast, "480p")?.usd, 1 / 6);
+    assert.equal(providerBilling(qy, "1080p")?.usd, 0.6);
+    assert.equal(providerBilling(model431, "720p")?.usd, 0.215);
+    assert.equal(resolveProviderVideoResolution(economy), "720p");
+    assert.equal(resolveProviderVideoResolution(economy, "1080p"), undefined);
 });

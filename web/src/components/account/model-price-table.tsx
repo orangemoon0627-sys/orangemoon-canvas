@@ -18,7 +18,7 @@ export function ModelPriceTable() {
     const columns = [
         { title: "产品", dataIndex: "label", width: 300, render: (_: string, model: ProviderCatalogModel) => <div><div className="font-medium">{model.label}</div><Typography.Text type="secondary" className="!text-xs">{model.description}</Typography.Text></div> },
         { title: "类型", dataIndex: "capability", width: 90, render: capabilityLabel },
-        { title: "分辨率", key: "resolution", width: 100, render: (_: unknown, model: ProviderCatalogModel) => model.resolution ? <Tag>{model.resolution.toUpperCase()}</Tag> : "-" },
+        { title: "分辨率", key: "resolution", width: 190, render: (_: unknown, model: ProviderCatalogModel) => <Space size={[4, 4]} wrap>{(model.resolutions || (model.resolution ? [model.resolution] : [])).map((resolution) => <Tag key={resolution}>{resolution.toUpperCase()}</Tag>)}</Space> },
         { title: "档位", key: "tier", width: 90, render: (_: unknown, model: ProviderCatalogModel) => model.tier ? <Tag color={tierColor(model.tier)}>{tierLabel(model.tier)}</Tag> : "-" },
         ...(showCost ? [{ title: "上游成本", key: "cost", width: 210, render: (_: unknown, model: ProviderCatalogModel) => <ExampleValues model={model} mode="cost" /> }] : []),
         { title: "平台售价", key: "retail", width: 220, render: (_: unknown, model: ProviderCatalogModel) => <ExampleValues model={model} mode="retail" /> },
@@ -49,13 +49,17 @@ function AgentPriceTable({ pricing, loading }: { pricing?: AgentPricing; loading
 }
 
 function ExampleValues({ model, mode }: { model: ProviderCatalogModel; mode: "retail" | "cost" | "margin" }) {
-    return <Space orientation="vertical" size={2}>{model.examples.map((example) => <span key={`${example.requestedQuantity}-${example.unit}`} className="text-xs tabular-nums">{exampleLabel(model, example)} · {exampleValue(example, mode)}</span>)}</Space>;
+    const groups = model.resolutionExamples
+        ? Object.entries(model.resolutionExamples).flatMap(([resolution, examples]) => (examples || []).map((example) => ({ resolution, example })))
+        : model.examples.map((example) => ({ resolution: "", example }));
+    return <Space orientation="vertical" size={2}>{groups.map(({ resolution, example }) => <span key={`${resolution}-${example.requestedQuantity}-${example.unit}`} className="text-xs tabular-nums">{exampleLabel(model, example, resolution)} · {exampleValue(example, mode)}</span>)}</Space>;
 }
 
-function exampleLabel(model: ProviderCatalogModel, example: ProviderPriceExample) {
+function exampleLabel(model: ProviderCatalogModel, example: ProviderPriceExample, resolution = "") {
     if (model.capability === "image") return `${example.requestedQuantity} 张`;
     if (model.capability === "audio") return `${example.requestedQuantity.toLocaleString()} 字符`;
-    return model.billing.unit === "generation" ? "15 秒/条" : `${example.requestedQuantity} 秒`;
+    const duration = model.billing.unit === "generation" ? "15 秒/条" : `${example.requestedQuantity} 秒`;
+    return resolution ? `${resolution.toUpperCase()} · ${duration}` : duration;
 }
 
 function exampleValue(example: ProviderPriceExample, mode: "retail" | "cost" | "margin") {

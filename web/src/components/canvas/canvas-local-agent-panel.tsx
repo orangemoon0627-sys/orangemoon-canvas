@@ -39,6 +39,7 @@ const VIBE_STARTERS = [
     { label: "视频提示词反推", prompt: "请调用 creative_skill_get 获取 video-prompt-reverse，并按固定输出契约分析我提供的参考视频关键帧：区分观察事实与创意改写，输出视觉指纹、带时间码镜头线、Image 2 关键帧提示词、Seedance 最终提示词、负面约束、不确定项和置信度。若目前只有链接而没有视频或关键帧，请明确需要先用本地反推工具抽帧，不要臆测画面。" },
     { label: "完整短片工作流", prompt: "请先调用 creative_skill_get 分别读取 image2-visual-development 与 seedance2-director，结合当前画布内容设计最少但完整的短片工作流。先生成并审核人物、场景、必要道具和黑白故事板，再把成功结果接入 Seedance；不要绕过失败依赖。每个付费阶段都展示真实模型配置、预计积分和可审核选项。" },
 ];
+const REWRITE_LAST_REVERSE_PROMPT = "请调用 creative_skill_get 获取 video-prompt-reverse，并基于当前会话最近一次完整的视频反推结果执行一键原创改写。不要重新下载视频、不要重复抽帧、不要再次做视觉分析。先用一句话各给出均衡改写、大胆改写、彻底重构三个方向并推荐一个，然后只展开推荐方案：保留原片的构图规律、节奏、主运镜、转场和材质逻辑，至少替换人物身份、叙事目标、世界观、地点、道具、人物关系、声音、色彩或情绪落点中的五类，移除专有角色、Logo、标志性台词和原片独占情节，输出新的 Image 2 人物/场景/关键帧提示词、Seedance 提示词和负面约束。";
 const AGENT_CONNECT_STEPS = [
     { title: "方式一：在 Codex 中使用插件", text: "在 Codex app 安装橙月画布兼容的 Infinite Canvas 插件后，插件会自动启动本地 Agent 并带上连接信息。" },
     { title: "方式二：直接运行 Agent", text: "不使用 Codex 插件时，在终端运行下面命令，再回到网页里连接或手动填入 Local URL 和 Connect token。", command: "npx -y @basketikun/canvas-agent" },
@@ -428,9 +429,13 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
             document.removeEventListener("visibilitychange", activateVisible);
         };
     }, [connected, endpoint, token]);
-    const sendPrompt = async () => {
-        const text = prompt.trim();
-        const files = attachments;
+    const hasReversePromptResult = useMemo(
+        () => messages.some((item) => item.role === "assistant" && item.text.includes("视频概要") && item.text.includes("视觉指纹") && item.text.includes("Seedance")),
+        [messages],
+    );
+    const sendPrompt = async (overridePrompt?: string) => {
+        const text = (overridePrompt ?? prompt).trim();
+        const files = overridePrompt ? [] : attachments;
         const requestPrompt = promptWithAttachments(text, files);
         if (!connected || !connectedRef.current || !requestPrompt || sending || waiting) return;
         const context = canvasContextRef.current;
@@ -1049,6 +1054,20 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
                                     <span className="text-[11px]" style={{ color: theme.node.muted }}>
                                         {formatBytes(attachmentPayloadBytes(attachments))} / 30MB
                                     </span>
+                                ) : null}
+                                {creativeMode === "vibe" && hasReversePromptResult && !prompt.trim() && !attachments.length ? (
+                                    <Tooltip title="一键改写最近反推稿">
+                                        <Button
+                                            type="text"
+                                            shape="circle"
+                                            className="!h-9 !w-9 !min-w-9"
+                                            disabled={sending || waiting}
+                                            style={{ color: theme.node.muted }}
+                                            icon={<RefreshCw className="size-4" />}
+                                            onClick={() => void sendPrompt(REWRITE_LAST_REVERSE_PROMPT)}
+                                            aria-label="一键改写最近反推稿"
+                                        />
+                                    </Tooltip>
                                 ) : null}
                             </>
                         }
@@ -1760,22 +1779,28 @@ function officialQuoteItems(plan: ReturnType<typeof buildAgentGenerationPlan>, c
 function normalizeGenerationPlan(plan: ReturnType<typeof buildAgentGenerationPlan>, catalog: ProviderCatalog | null) {
     if (!catalog) return plan;
     return plan.map((item) => {
-        const product = item.mode === "video" ? canonicalOrangeMoonVideoModel(item.model) : "";
+        const canonicalModel = item.mode === "video" ? canonicalOrangeMoonVideoModel(item.model) : item.model;
         const model = catalog.models.find((candidate) =>
             candidate.capability === item.mode
             && (candidate.id === item.model
+                || candidate.id === canonicalModel
                 || candidate.label.toLowerCase() === item.model.toLowerCase()
-                || (item.mode === "video" && candidate.product === product && candidate.resolution === item.resolution)),
+            ),
         );
         if (!model) return item;
         if (item.mode !== "video") return { ...item, model: model.id };
-        const durations = model.fixedDuration ? [model.fixedDuration] : model.allowedDurations || model.recommendedDurations || [];
+        const resolutions = model.resolutions || (model.resolution ? [model.resolution] : []);
+        const resolution = resolutions.includes(item.resolution as "480p" | "720p" | "1080p") ? item.resolution : model.defaultResolution || model.resolution || resolutions[0] || item.resolution;
+        const seconds = model.fixedDuration
+            || (model.allowedDurations?.length
+                ? (model.allowedDurations.includes(item.seconds) ? item.seconds : model.allowedDurations[0])
+                : Math.min(model.maxDuration || 15, Math.max(model.minDuration || 5, item.seconds)));
         return {
             ...item,
             model: model.id,
-            resolution: model.resolution || item.resolution,
+            resolution,
             size: model.aspectRatios?.includes(item.size) ? item.size : model.aspectRatios?.[0] || item.size,
-            seconds: durations.includes(item.seconds) ? item.seconds : durations[0] || Math.min(model.maxDuration || 15, Math.max(model.minDuration || 5, item.seconds)),
+            seconds,
         };
     });
 }

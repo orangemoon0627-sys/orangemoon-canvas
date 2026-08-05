@@ -162,7 +162,9 @@ export type ProviderCatalogModel = {
     visibility: "public" | "legacy";
     description: string;
     resolution?: "480p" | "720p" | "1080p";
-    product?: "seedance-2.0" | "seedance-2.0-fast" | "seedance-2.0-mini";
+    resolutions?: Array<"480p" | "720p" | "1080p">;
+    defaultResolution?: "480p" | "720p" | "1080p";
+    exclusive?: boolean;
     tier?: "economy" | "mini" | "fast" | "standard" | "pro";
     minDuration?: number;
     maxDuration?: number;
@@ -171,7 +173,9 @@ export type ProviderCatalogModel = {
     recommendedDurations?: number[];
     aspectRatios?: string[];
     billing: { unit: ProviderPriceExample["billingUnit"]; usd?: number };
+    billingByResolution?: Partial<Record<"480p" | "720p" | "1080p", { unit: ProviderPriceExample["billingUnit"]; usd: number }>>;
     examples: ProviderPriceExample[];
+    resolutionExamples?: Partial<Record<"480p" | "720p" | "1080p", ProviderPriceExample[]>>;
 };
 
 export type ProviderCatalog = {
@@ -281,7 +285,7 @@ export function fetchProviderCatalog() {
     return platformRequest<ProviderCatalog>("/providers/catalog");
 }
 
-export function quoteProviderBundle(items: Array<{ id: string; model: string; quantity: number }>) {
+export function quoteProviderBundle(items: Array<{ id: string; model: string; quantity: number; resolution?: string }>) {
     return platformRequest<ProviderBundleQuote>("/providers/quote", { method: "POST", body: JSON.stringify({ items }) });
 }
 

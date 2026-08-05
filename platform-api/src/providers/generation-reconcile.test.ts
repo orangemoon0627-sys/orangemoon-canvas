@@ -16,7 +16,7 @@ function submittedVideoJob(): GenerationJob {
         publicId: "GEN-VIDEO-1",
         userId: "user-1",
         capability: "video",
-        model: "seedance-2.0-720p-pro",
+        model: "431-Seedream-2.0",
         status: GenerationStatus.SUBMITTED,
         idempotencyKey: "video-request-1",
         reservedMilliCredits: 9900n,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { findProviderModel, METAJING_IMAGE_SIZES } from "./provider-catalog";
+import { findProviderModel, isExclusiveVideoModelId, METAJING_IMAGE_SIZES, resolveProviderVideoResolution } from "./provider-catalog";
 
 export const imageRequestSchema = z
     .object({
@@ -22,8 +22,9 @@ export const imageRequestSchema = z
 export const videoRequestSchema = z
     .object({
         model: z.string().trim().min(1),
-        prompt: z.string().trim().min(1).max(4000),
+        prompt: z.string().trim().min(1).max(10_000),
         duration: z.coerce.number().int(),
+        resolution: z.enum(["480p", "720p", "1080p"]).optional(),
         aspect_ratio: z.string().trim(),
         images: z.array(z.string().trim()).default([]),
         videos: z.array(z.string().trim()).default([]),
@@ -34,10 +35,12 @@ export const videoRequestSchema = z
     .strict()
     .superRefine((input, context) => {
         const model = findProviderModel(input.model);
-        if (!model || model.provider !== "metajing" || model.capability !== "video") {
-            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "不是橙月画布已登记的 Seedance 2.0 模型" });
+        if (!model || model.provider !== "metajing" || model.capability !== "video" || !isExclusiveVideoModelId(input.model)) {
+            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "该视频模型已停用，橙月画布只允许四个独家视频 API" });
             return;
         }
+        if (!resolveProviderVideoResolution(model, input.resolution)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["resolution"], message: `该模型只支持 ${(model.resolutions || []).join("、")}` });
+        if (input.prompt.length > (model.maxPromptChars || 4_000)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["prompt"], message: `该模型提示词不能超过 ${model.maxPromptChars || 4_000} 个字符` });
         if (model.fixedDuration && input.duration !== model.fixedDuration) context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: `该模型固定生成 ${model.fixedDuration} 秒` });
         if (!model.fixedDuration && (input.duration < (model.minDuration || 5) || input.duration > (model.maxDuration || 15))) context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: `时长需要在 ${model.minDuration || 5}-${model.maxDuration || 15} 秒之间` });
         if (model.allowedDurations && !model.allowedDurations.includes(input.duration)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: `该模型只支持 ${model.allowedDurations.join("、")} 秒` });

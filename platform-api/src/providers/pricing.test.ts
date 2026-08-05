@@ -24,26 +24,26 @@ test("MetaJing 按额度 1:1、MiniMax 按 7.3 汇率分别计价", () => {
     assert.equal(audio.retailMilliCredits, 723n);
 });
 
-test("Seedance 按时长计费，固定条目不重复乘时长", () => {
-    const fast = pricing.quote(findProviderModel("seedance-2.0-720p-economy")!, 5);
-    const fixed = pricing.quote(findProviderModel("mg-seedance2.0 -720p-mini-gz-15s")!, 15);
-    assert.equal(fast.retailCredits, "0.825");
-    assert.equal(fixed.retailCredits, "4.752");
-    assert.equal(fixed.quantity, 1);
+test("四个独家视频 API 按型号、分辨率和时长计费", () => {
+    const qyFast = findProviderModel("qy-seedance-2.0-fast")!;
+    const qy = findProviderModel("qy-seedance-2.0")!;
+    const model431 = findProviderModel("431-Seedream-2.0")!;
+    const economy = findProviderModel("Seedance 2.0-fast-720p")!;
+
+    assert.equal(pricing.quote(qyFast, 5, "480p").retailCredits, "1.375");
+    assert.equal(pricing.quote(qyFast, 5, "720p").retailCredits, "1.65");
+    assert.equal(pricing.quote(qy, 15, "720p").retailCredits, "6.6");
+    assert.equal(pricing.quote(qy, 15, "1080p").retailCredits, "14.85");
+    assert.equal(pricing.quote(model431, 4, "480p").retailCredits, "0.977");
+    assert.equal(pricing.quote(model431, 15, "720p").retailCredits, "5.322");
+    assert.equal(pricing.quote(economy, 15, "720p").retailCredits, "2.475");
 });
 
-test("旧清衍模型保持可计价，公开 Fast 档使用当前 MetaJing 费率", () => {
-    const standard720 = findProviderModel("seedance-2.0-720p-standard")!;
-    const fast480 = findProviderModel("seedance-2.0-480p-fast")!;
-    assert.equal(standard720.upstreamModel, "qy-seedance-2.0");
-    assert.equal(pricing.quote(standard720, 15).retailCredits, "6.6");
-    assert.equal(pricing.quote(fast480, 5).retailCredits, "1.362");
+test("不支持的分辨率不能报价", () => {
+    const economy = findProviderModel("Seedance 2.0-fast-720p")!;
+    assert.throws(() => pricing.quote(economy, 5, "1080p"), /不支持 1080p 分辨率/);
 });
 
-test("720P Pro 15 秒售价固定在 9.9 积分并反推统一毛利率", () => {
-    const pro720 = pricing.quote(findProviderModel("seedance-2.0-720p-pro")!, 15);
-    assert.equal(pro720.upstreamCny, 6);
-    assert.equal(pro720.retailCredits, "9.9");
-    assert.equal(pro720.grossMargin, 0.3939);
+test("平台统一使用 1.65 倍售价系数", () => {
     assert.equal(pricing.targetGrossMargin(), 0.3939);
 });

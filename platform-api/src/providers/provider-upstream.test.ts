@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { BadRequestException } from "@nestjs/common";
+
 import { videoUpstreamRequest } from "./provider-upstream.service";
 
 const baseInput = {
@@ -12,18 +14,28 @@ const baseInput = {
     audios: [],
 };
 
-test("MG 视频按 MetaJing newapi 网页协议携带来源和分辨率", () => {
-    const request = videoUpstreamRequest({ ...baseInput, model: "seedance-2.0-720p-pro" }, "test-key");
+test("独家视频请求原样携带真实模型和选择的分辨率", () => {
+    const request = videoUpstreamRequest({ ...baseInput, model: "431-Seedream-2.0", resolution: "1080p" }, "test-key");
 
-    assert.equal(request.headers["x-aihub-source"], "web");
-    assert.equal(request.payload.model, "mg-seedance2.0 -720p pro");
+    assert.equal(request.payload.model, "431-Seedream-2.0");
+    assert.equal(request.payload.resolution, "1080p");
+    assert.equal(request.headers.Authorization, "Bearer test-key");
+});
+
+test("未指定分辨率时使用独家模型的默认分辨率", () => {
+    const request = videoUpstreamRequest({ ...baseInput, model: "qy-seedance-2.0" }, "test-key");
+
+    assert.equal(request.payload.model, "qy-seedance-2.0");
     assert.equal(request.payload.resolution, "720p");
 });
 
-test("清衍别名转换为上游模型并保留选择的分辨率", () => {
-    const request = videoUpstreamRequest({ ...baseInput, model: "seedance-2.0-720p-standard" }, "test-key");
-
-    assert.equal(request.headers["x-aihub-source"], undefined);
-    assert.equal(request.payload.model, "qy-seedance-2.0");
-    assert.equal(request.payload.resolution, "720p");
+test("旧视频模型和不支持的分辨率都不能进入上游", () => {
+    assert.throws(
+        () => videoUpstreamRequest({ ...baseInput, model: "mg-seedance2.0 -720p fast" }, "test-key"),
+        (error: unknown) => error instanceof BadRequestException && /已停用/.test(error.message),
+    );
+    assert.throws(
+        () => videoUpstreamRequest({ ...baseInput, model: "Seedance 2.0-fast-720p", resolution: "1080p" }, "test-key"),
+        (error: unknown) => error instanceof BadRequestException && /不支持 1080p/.test(error.message),
+    );
 });

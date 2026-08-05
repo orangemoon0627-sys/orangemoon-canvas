@@ -2,15 +2,21 @@ export const ORANGE_MOON_PROVIDER = "orangemoon" as const;
 export const ORANGE_MOON_CHANNEL_ID = "orangemoon-official";
 export const ORANGE_MOON_GATEWAY_URL = "canvas-agent://providers";
 
+export const ORANGE_MOON_VIDEO_MODEL_IDS = [
+    "qy-seedance-2.0-fast",
+    "qy-seedance-2.0",
+    "431-Seedream-2.0",
+    "Seedance 2.0-fast-720p",
+] as const;
+
 export type OrangeMoonModelCapability = "image" | "video" | "audio";
 export type OrangeMoonModel = { name: string; capability: OrangeMoonModelCapability };
-export type OrangeMoonVideoProductName = "seedance-2.0" | "seedance-2.0-fast" | "seedance-2.0-mini";
+export type OrangeMoonVideoProductName = (typeof ORANGE_MOON_VIDEO_MODEL_IDS)[number];
 export type OrangeMoonVideoResolution = "480p" | "720p" | "1080p";
-export type OrangeMoonVideoTier = "mini" | "fast" | "pro";
+export type OrangeMoonVideoTier = "economy" | "fast" | "standard" | "pro";
 export type OrangeMoonVideoModel = {
-    name: string;
+    name: OrangeMoonVideoProductName;
     label: string;
-    product: OrangeMoonVideoProductName;
     tier: OrangeMoonVideoTier;
     resolution: OrangeMoonVideoResolution;
     minDuration: number;
@@ -25,72 +31,79 @@ export type OrangeMoonVideoModel = {
 export type OrangeMoonVideoProduct = {
     name: OrangeMoonVideoProductName;
     label: string;
+    tier: OrangeMoonVideoTier;
     resolutions: OrangeMoonVideoResolution[];
     defaultResolution: OrangeMoonVideoResolution;
-    variants: Partial<Record<OrangeMoonVideoResolution, string>>;
+    rates: Partial<Record<OrangeMoonVideoResolution, number>>;
+    minDuration: number;
+    maxDuration: number;
+    allowedDurations?: number[];
+    durations: number[];
+    aspectRatios: string[];
+    references: OrangeMoonVideoModel["references"];
 };
 
 const MB = 1024 * 1024;
-const fullReferences = { images: 9, videos: 3, audios: 3, imageMaxBytes: 12 * MB, videoMaxBytes: 48 * MB, audioMaxBytes: 16 * MB };
-const proReferences = { ...fullReferences, images: 4, audios: 1 };
-const wideRatios = ["16:9", "9:16"];
+const qyReferences = { images: 9, videos: 3, audios: 3, imageMaxBytes: 12 * MB, videoMaxBytes: 50_000_000, audioMaxBytes: 16 * MB };
+const model431References = { images: 4, videos: 3, audios: 1, imageMaxBytes: 20_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000 };
+const imageOnlyReferences = { images: 9, videos: 0, audios: 0, imageMaxBytes: 12 * MB, videoMaxBytes: 0, audioMaxBytes: 0 };
+const qyRatios = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
 
-function videoModel(
-    name: string,
-    label: string,
-    product: OrangeMoonVideoProductName,
-    tier: OrangeMoonVideoTier,
-    resolution: OrangeMoonVideoResolution,
-    usd: number,
-    references: OrangeMoonVideoModel["references"],
-): OrangeMoonVideoModel {
-    return {
-        name,
-        label,
-        product,
-        tier,
-        resolution,
+export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
+    {
+        name: "qy-seedance-2.0-fast",
+        label: "Seedance 2.0 Fast（清衍独家）",
+        tier: "fast",
+        resolutions: ["480p", "720p"],
+        defaultResolution: "720p",
+        rates: { "480p": 1 / 6, "720p": 0.2 },
         minDuration: 5,
         maxDuration: 15,
         allowedDurations: [5, 10, 15],
         durations: [5, 10, 15],
-        aspectRatios: wideRatios,
-        references,
-        price: { unit: "second", usd },
-    };
-}
-
-const VIDEO_VARIANTS: OrangeMoonVideoModel[] = [
-    videoModel("seedance-2.0-480p-pro", "Seedance 2.0", "seedance-2.0", "pro", "480p", 0.268, proReferences),
-    videoModel("seedance-2.0-720p-pro", "Seedance 2.0", "seedance-2.0", "pro", "720p", 0.4, proReferences),
-    videoModel("seedance-2.0-1080p-standard", "Seedance 2.0", "seedance-2.0", "pro", "1080p", 0.67, fullReferences),
-    videoModel("seedance-2.0-480p-fast", "Seedance 2.0 Fast", "seedance-2.0-fast", "fast", "480p", 0.165, proReferences),
-    videoModel("seedance-2.0-720p-fast", "Seedance 2.0 Fast", "seedance-2.0-fast", "fast", "720p", 0.298, proReferences),
-    videoModel("seedance-2.0-480p-mini", "Seedance 2.0 Mini", "seedance-2.0-mini", "mini", "480p", 0.158, proReferences),
-    videoModel("seedance-2.0-720p-mini", "Seedance 2.0 Mini", "seedance-2.0-mini", "mini", "720p", 0.228, proReferences),
-];
-
-export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
+        aspectRatios: qyRatios,
+        references: qyReferences,
+    },
     {
-        name: "seedance-2.0",
-        label: "Seedance 2.0",
+        name: "qy-seedance-2.0",
+        label: "Seedance 2.0（清衍独家）",
+        tier: "standard",
         resolutions: ["480p", "720p", "1080p"],
         defaultResolution: "720p",
-        variants: { "480p": "seedance-2.0-480p-pro", "720p": "seedance-2.0-720p-pro", "1080p": "seedance-2.0-1080p-standard" },
+        rates: { "480p": 0.2, "720p": 4 / 15, "1080p": 0.6 },
+        minDuration: 5,
+        maxDuration: 15,
+        allowedDurations: [5, 10, 15],
+        durations: [5, 10, 15],
+        aspectRatios: qyRatios,
+        references: qyReferences,
     },
     {
-        name: "seedance-2.0-fast",
-        label: "Seedance 2.0 Fast",
-        resolutions: ["480p", "720p"],
+        name: "431-Seedream-2.0",
+        label: "Seedance 2.0（431 独家）",
+        tier: "pro",
+        resolutions: ["480p", "720p", "1080p"],
         defaultResolution: "720p",
-        variants: { "480p": "seedance-2.0-480p-fast", "720p": "seedance-2.0-720p-fast" },
+        rates: { "480p": 0.148, "720p": 0.215, "1080p": 0.37 },
+        minDuration: 4,
+        maxDuration: 15,
+        durations: Array.from({ length: 12 }, (_, index) => index + 4),
+        aspectRatios: [...qyRatios, "9:21"],
+        references: model431References,
     },
     {
-        name: "seedance-2.0-mini",
-        label: "Seedance 2.0 Mini",
-        resolutions: ["480p", "720p"],
+        name: "Seedance 2.0-fast-720p",
+        label: "Seedance 2.0 Fast 720P（独家）",
+        tier: "economy",
+        resolutions: ["720p"],
         defaultResolution: "720p",
-        variants: { "480p": "seedance-2.0-480p-mini", "720p": "seedance-2.0-720p-mini" },
+        rates: { "720p": 0.1 },
+        minDuration: 5,
+        maxDuration: 15,
+        allowedDurations: [5, 10, 15],
+        durations: [5, 10, 15],
+        aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+        references: imageOnlyReferences,
     },
 ];
 
@@ -101,51 +114,53 @@ export const ORANGE_MOON_MODELS: OrangeMoonModel[] = [
     { name: "speech-2.8-turbo", capability: "audio" },
 ];
 
-const LEGACY_TO_PRODUCT: Record<string, OrangeMoonVideoProductName> = {
-    "seedance-2.0-480p-mini": "seedance-2.0-mini",
-    "seedance-2.0-720p-mini": "seedance-2.0-mini",
-    "seedance-2.0-480p-fast": "seedance-2.0-fast",
-    "seedance-2.0-720p-fast": "seedance-2.0-fast",
-    "seedance-2.0-720p-economy": "seedance-2.0-fast",
-    "seedance-2.0-480p-standard": "seedance-2.0",
-    "seedance-2.0-720p-standard": "seedance-2.0",
-    "seedance-2.0-1080p-standard": "seedance-2.0",
-    "seedance-2.0-480p-pro": "seedance-2.0",
-    "seedance-2.0-720p-pro": "seedance-2.0",
-    "qy-seedance-2.0-480p": "seedance-2.0",
-    "qy-seedance-2.0-720p": "seedance-2.0",
-    "qy-seedance-2.0-1080p": "seedance-2.0",
-    "qy-seedance-2.0-fast-480p": "seedance-2.0-fast",
-    "qy-seedance-2.0-fast-720p": "seedance-2.0-fast",
-    "Seedance 2.0-fast-720p": "seedance-2.0-fast",
-    "cc-seedance2.0 480p-fast-nsp": "seedance-2.0-fast",
-    "cc-seedance2.0 480p-nsp": "seedance-2.0",
-    "mg-seedance2.0 -1080p": "seedance-2.0",
-    "mg-seedance2.0 -480p": "seedance-2.0",
-    "mg-seedance2.0 -480p fast": "seedance-2.0-fast",
-    "mg-seedance2.0 -480p mini": "seedance-2.0-mini",
-    "mg-seedance2.0 -720p fast": "seedance-2.0-fast",
-    "mg-seedance2.0 -720p mini": "seedance-2.0-mini",
-    "mg-seedance2.0 -720p pro": "seedance-2.0",
-    "mg-seedance2.0 -480p-fast-gz-15s": "seedance-2.0-fast",
-    "mg-seedance2.0 -480p-gz-15s": "seedance-2.0",
-    "mg-seedance2.0 -480p-mini-gz-15s": "seedance-2.0-mini",
-    "mg-seedance2.0 -720p-fast-gz-15s": "seedance-2.0-fast",
-    "mg-seedance2.0 -720p-gz-15s": "seedance-2.0",
-    "mg-seedance2.0 -720p-mini-gz-15s": "seedance-2.0-mini",
+const LEGACY_TO_CURRENT: Record<string, OrangeMoonVideoProductName> = {
+    "seedance-2.0": "qy-seedance-2.0",
+    "seedance-2.0-fast": "qy-seedance-2.0-fast",
+    "seedance-2.0-mini": "qy-seedance-2.0-fast",
+    "seedance-2.0-480p-mini": "qy-seedance-2.0-fast",
+    "seedance-2.0-720p-mini": "qy-seedance-2.0-fast",
+    "seedance-2.0-480p-fast": "qy-seedance-2.0-fast",
+    "seedance-2.0-720p-fast": "qy-seedance-2.0-fast",
+    "seedance-2.0-720p-economy": "Seedance 2.0-fast-720p",
+    "seedance-2.0-480p-standard": "qy-seedance-2.0",
+    "seedance-2.0-720p-standard": "qy-seedance-2.0",
+    "seedance-2.0-1080p-standard": "qy-seedance-2.0",
+    "seedance-2.0-480p-pro": "qy-seedance-2.0",
+    "seedance-2.0-720p-pro": "qy-seedance-2.0",
+    "qy-seedance-2.0-480p": "qy-seedance-2.0",
+    "qy-seedance-2.0-720p": "qy-seedance-2.0",
+    "qy-seedance-2.0-1080p": "qy-seedance-2.0",
+    "qy-seedance-2.0-fast-480p": "qy-seedance-2.0-fast",
+    "qy-seedance-2.0-fast-720p": "qy-seedance-2.0-fast",
+    "cc-seedance2.0 480p-fast-nsp": "qy-seedance-2.0-fast",
+    "cc-seedance2.0 480p-nsp": "qy-seedance-2.0",
+    "mg-seedance2.0 -1080p": "qy-seedance-2.0",
+    "mg-seedance2.0 -480p": "qy-seedance-2.0",
+    "mg-seedance2.0 -480p fast": "qy-seedance-2.0-fast",
+    "mg-seedance2.0 -480p mini": "qy-seedance-2.0-fast",
+    "mg-seedance2.0 -720p fast": "qy-seedance-2.0-fast",
+    "mg-seedance2.0 -720p mini": "qy-seedance-2.0-fast",
+    "mg-seedance2.0 -720p pro": "qy-seedance-2.0",
+    "mg-seedance2.0 -480p-fast-gz-15s": "qy-seedance-2.0-fast",
+    "mg-seedance2.0 -480p-gz-15s": "qy-seedance-2.0",
+    "mg-seedance2.0 -480p-mini-gz-15s": "qy-seedance-2.0-fast",
+    "mg-seedance2.0 -720p-fast-gz-15s": "qy-seedance-2.0-fast",
+    "mg-seedance2.0 -720p-gz-15s": "qy-seedance-2.0",
+    "mg-seedance2.0 -720p-mini-gz-15s": "qy-seedance-2.0-fast",
 };
+
+const CURRENT_BY_NORMALIZED_NAME = new Map<string, OrangeMoonVideoProductName>();
+for (const model of ORANGE_MOON_VIDEO_MODELS) {
+    CURRENT_BY_NORMALIZED_NAME.set(normalizeModelName(model.name), model.name);
+    CURRENT_BY_NORMALIZED_NAME.set(normalizeModelName(model.label), model.name);
+}
 
 export function canonicalOrangeMoonVideoModel(name: string) {
     if (isVideoProductName(name)) return name;
-    const direct = LEGACY_TO_PRODUCT[name];
+    const direct = LEGACY_TO_CURRENT[name];
     if (direct) return direct;
-    const normalized = normalizeModelName(name);
-    const product = ORANGE_MOON_VIDEO_MODELS.find((item) => normalizeModelName(item.name) === normalized || normalizeModelName(item.label) === normalized);
-    if (product) return product.name;
-    if (!normalized.includes("seedance")) return name;
-    if (normalized.includes("mini")) return "seedance-2.0-mini";
-    if (normalized.includes("fast") || normalized.includes("economy")) return "seedance-2.0-fast";
-    return "seedance-2.0";
+    return CURRENT_BY_NORMALIZED_NAME.get(normalizeModelName(name)) || name;
 }
 
 export function getOrangeMoonVideoProduct(name: string) {
@@ -153,16 +168,28 @@ export function getOrangeMoonVideoProduct(name: string) {
     return ORANGE_MOON_VIDEO_MODELS.find((item) => item.name === canonical);
 }
 
-export function getOrangeMoonVideoModel(name: string, requestedResolution?: string) {
+export function getOrangeMoonVideoModel(name: string, requestedResolution?: string): OrangeMoonVideoModel | undefined {
     const product = getOrangeMoonVideoProduct(name);
     if (!product) return undefined;
-    const resolution = normalizeResolution(requestedResolution) || inferResolution(name) || product.defaultResolution;
-    const variantName = product.variants[product.resolutions.includes(resolution) ? resolution : product.defaultResolution];
-    return VIDEO_VARIANTS.find((item) => item.name === variantName);
+    const requested = normalizeResolution(requestedResolution);
+    const resolution = requested && product.resolutions.includes(requested) ? requested : product.defaultResolution;
+    return {
+        name: product.name,
+        label: product.label,
+        tier: product.tier,
+        resolution,
+        minDuration: product.minDuration,
+        maxDuration: product.maxDuration,
+        allowedDurations: product.allowedDurations,
+        durations: product.durations,
+        aspectRatios: product.aspectRatios,
+        references: product.references,
+        price: { unit: "second" as const, usd: product.rates[resolution]! },
+    } satisfies OrangeMoonVideoModel;
 }
 
-export function resolveOrangeMoonVideoVariantName(name: string, requestedResolution?: string) {
-    return getOrangeMoonVideoModel(name, requestedResolution)?.name || name;
+export function resolveOrangeMoonVideoVariantName(name: string) {
+    return canonicalOrangeMoonVideoModel(name);
 }
 
 export function getOrangeMoonModelLabel(name: string) {
@@ -173,20 +200,15 @@ export function getOrangeMoonModelLabel(name: string) {
 }
 
 function normalizeResolution(value?: string): OrangeMoonVideoResolution | undefined {
-    const normalized = String(value || "").trim().toLowerCase();
-    if (normalized === "480" || normalized === "480p") return "480p";
-    if (normalized === "720" || normalized === "720p" || normalized === "auto" || normalized === "high" || normalized === "medium") return "720p";
-    if (normalized === "1080" || normalized === "1080p") return "1080p";
+    const normalized = String(value || "").trim().toLowerCase().replace(/p$/, "");
+    if (normalized === "480" || normalized === "720" || normalized === "1080") return `${normalized}p` as OrangeMoonVideoResolution;
+    if (normalized === "auto" || normalized === "high" || normalized === "medium") return "720p";
+    if (normalized === "low") return "480p";
     return undefined;
 }
 
-function inferResolution(name: string) {
-    const match = name.toLowerCase().match(/(480|720|1080)p?/);
-    return normalizeResolution(match?.[1]);
-}
-
 function isVideoProductName(value: string): value is OrangeMoonVideoProductName {
-    return value === "seedance-2.0" || value === "seedance-2.0-fast" || value === "seedance-2.0-mini";
+    return ORANGE_MOON_VIDEO_MODEL_IDS.some((model) => model === value);
 }
 
 function normalizeModelName(value: string) {

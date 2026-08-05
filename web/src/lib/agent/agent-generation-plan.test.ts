@@ -6,7 +6,7 @@ import type { CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
 
 const defaults = {
     imageModel: "orangemoon-official::gpt-image-2",
-    videoModel: "orangemoon-official::seedance-2.0",
+    videoModel: "orangemoon-official::qy-seedance-2.0",
     audioModel: "orangemoon-official::speech-2.8-hd",
     imageSize: "1:1",
     imageQuality: "auto",
@@ -30,20 +30,20 @@ test("builds editable image and video review items from a workflow", () => {
     assert.equal(plan.length, 2);
     assert.deepEqual(plan.map((item) => [item.mode, item.model, item.size]), [
         ["image", "gpt-image-2", "9:16"],
-        ["video", "seedance-2.0", "16:9"],
+        ["video", "qy-seedance-2.0", "16:9"],
     ]);
     assert.equal(plan[1]?.resolution, "720p");
     assert.deepEqual(generationQuoteItems(plan).map(({ model, quantity }) => ({ model, quantity })), [
         { model: "gpt-image-2", quantity: 2 },
-        { model: "seedance-2.0", quantity: 15 },
+        { model: "qy-seedance-2.0", quantity: 15 },
     ]);
 });
 
 test("updates generated config metadata before run_generation", () => {
     const ops: CanvasAgentOp[] = [{ type: "run_generation", nodeId: "existing", mode: "video" }];
-    const next = updateAgentGenerationOps(ops, "existing", { model: "seedance-2.0-720p-economy", seconds: "10" });
+    const next = updateAgentGenerationOps(ops, "existing", { model: "Seedance 2.0-fast-720p", seconds: "10" });
     assert.deepEqual(next, [
-        { type: "update_node", id: "existing", metadata: { model: "seedance-2.0-720p-economy", seconds: "10" } },
+        { type: "update_node", id: "existing", metadata: { model: "Seedance 2.0-fast-720p", seconds: "10" } },
         { type: "run_generation", nodeId: "existing", mode: "video" },
     ]);
 });
@@ -56,7 +56,7 @@ test("normalizes common Agent model labels to billable official model ids", () =
         { type: "run_generation", nodeId: "video", mode: "video" },
     ];
 
-    assert.deepEqual(buildAgentGenerationPlan(ops, null, defaults).map((item) => item.model), ["gpt-image-2", "seedance-2.0"]);
+    assert.deepEqual(buildAgentGenerationPlan(ops, null, defaults).map((item) => item.model), ["gpt-image-2", "qy-seedance-2.0"]);
 });
 
 test("writes normalized review values back to the executable workflow", () => {
@@ -71,7 +71,7 @@ test("writes normalized review values back to the executable workflow", () => {
     const nodes = next?.filter((op) => op.type === "add_node") || [];
 
     assert.equal(nodes[0]?.metadata?.model, "gpt-image-2");
-    assert.equal(nodes[1]?.metadata?.model, "seedance-2.0");
+    assert.equal(nodes[1]?.metadata?.model, "qy-seedance-2.0");
     assert.equal(nodes[1]?.metadata?.seconds, "5");
     assert.equal(nodes[1]?.metadata?.vquality, "720");
 });

@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 
-import { BadGatewayException, HttpException, HttpStatus, Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { BadGatewayException, BadRequestException, HttpException, HttpStatus, Injectable, ServiceUnavailableException } from "@nestjs/common";
 
 import type { ImageRequest, SpeechRequest, VideoRequest } from "./provider-schemas";
-import { findProviderModel } from "./provider-catalog";
+import { findProviderModel, isExclusiveVideoModelId, resolveProviderVideoResolution } from "./provider-catalog";
 
 const METAJING_BASE_URL = "https://metajing.cn";
 const MINIMAX_BASE_URL = "https://api.minimax.io";
@@ -151,12 +151,15 @@ function providerHeaders(apiKey: string, extra?: Record<string, string>) {
 
 export function videoUpstreamRequest(input: VideoRequest, apiKey: string) {
     const model = findProviderModel(input.model);
+    if (!model || model.capability !== "video" || !isExclusiveVideoModelId(input.model)) throw new BadRequestException("该视频模型已停用，禁止调用上游");
+    const resolution = resolveProviderVideoResolution(model, input.resolution);
+    if (!resolution) throw new BadRequestException(`${model.label} 不支持 ${input.resolution || "当前"} 分辨率`);
     const payload = {
         ...input,
-        ...(model?.upstreamModel ? { model: model.upstreamModel } : {}),
-        ...(model?.resolution ? { resolution: model.resolution } : {}),
+        model: model.id,
+        resolution,
     };
-    const headers = providerHeaders(apiKey, model?.upstreamSource ? { "x-aihub-source": model.upstreamSource } : undefined);
+    const headers = providerHeaders(apiKey);
     return { payload, headers };
 }
 

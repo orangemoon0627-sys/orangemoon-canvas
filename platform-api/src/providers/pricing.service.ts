@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { platformMetaJingUsdToCny, platformMiniMaxUsdToCny, platformPriceMarkup, platformProviderUsdToCny } from "../common/environment";
 import { formatMilliCredits } from "../common/money";
 import { PrismaService } from "../prisma/prisma.service";
-import { PROVIDER_CATALOG_VERSION, PROVIDER_MODELS, providerQuantity, type ProviderModel } from "./provider-catalog";
+import { PROVIDER_CATALOG_VERSION, PROVIDER_MODELS, providerBilling, providerQuantity, resolveProviderVideoResolution, type ProviderModel, type ProviderVideoResolution } from "./provider-catalog";
 
 export const PRICE_ROUNDING = "up_to_0.001_credit";
 
@@ -34,12 +34,15 @@ export class PricingService implements OnModuleInit {
         });
     }
 
-    quote(model: ProviderModel, requestedQuantity: number) {
+    quote(model: ProviderModel, requestedQuantity: number, requestedResolution?: string) {
         const providerUsdToCny = this.exchangeRates();
         const usdToCny = platformProviderUsdToCny(model.provider);
         const markup = platformPriceMarkup();
-        const quantity = providerQuantity(model, requestedQuantity);
-        const upstreamUsd = model.billing.unit === "million_characters" ? (model.billing.usd * quantity) / 1_000_000 : model.billing.usd * quantity;
+        const resolution = resolveProviderVideoResolution(model, requestedResolution);
+        const billing = providerBilling(model, requestedResolution);
+        if (!billing) throw new Error(`${model.label} 不支持 ${requestedResolution || "当前"} 分辨率`);
+        const quantity = providerQuantity(billing, requestedQuantity);
+        const upstreamUsd = billing.unit === "million_characters" ? (billing.usd * quantity) / 1_000_000 : billing.usd * quantity;
         const upstreamCny = upstreamUsd * usdToCny;
         const retailMilliCredits = BigInt(Math.ceil((upstreamCny * markup * 1_000) - 1e-9));
         const retailCny = Number(retailMilliCredits) / 1_000;
@@ -47,7 +50,8 @@ export class PricingService implements OnModuleInit {
             version: this.version(providerUsdToCny, markup),
             model: model.id,
             provider: model.provider,
-            billingUnit: model.billing.unit,
+            billingUnit: billing.unit,
+            resolution,
             quantity,
             upstreamUsd: round(upstreamUsd, 6),
             upstreamCny: round(upstreamCny, 4),
@@ -59,10 +63,16 @@ export class PricingService implements OnModuleInit {
         };
     }
 
-    examples(model: ProviderModel) {
+    examples(model: ProviderModel, resolution?: ProviderVideoResolution) {
         if (model.capability === "image") return [{ requestedQuantity: 1, unit: "张", ...serializeQuote(this.quote(model, 1)) }];
         if (model.capability === "audio") return [{ requestedQuantity: 1_000, unit: "字符", ...serializeQuote(this.quote(model, 1_000)) }];
-        return (model.recommendedDurations || [5, 10, 15]).map((duration) => ({ requestedQuantity: duration, unit: model.billing.unit === "generation" ? "秒/条" : "秒", ...serializeQuote(this.quote(model, duration)) }));
+        const billing = providerBilling(model, resolution);
+        return (model.recommendedDurations || [5, 10, 15]).map((duration) => ({ requestedQuantity: duration, unit: billing?.unit === "generation" ? "秒/条" : "秒", ...serializeQuote(this.quote(model, duration, resolution)) }));
+    }
+
+    resolutionExamples(model: ProviderModel) {
+        if (model.capability !== "video") return undefined;
+        return Object.fromEntries((model.resolutions || []).map((resolution) => [resolution, this.examples(model, resolution)]));
     }
 
     exchangeRates() {

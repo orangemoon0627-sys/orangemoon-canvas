@@ -90,7 +90,7 @@ export const defaultConfig: AiConfig = {
     ],
     model: `${ORANGE_MOON_CHANNEL_ID}::gpt-image-2`,
     imageModel: `${ORANGE_MOON_CHANNEL_ID}::gpt-image-2`,
-    videoModel: `${ORANGE_MOON_CHANNEL_ID}::seedance-2.0`,
+    videoModel: `${ORANGE_MOON_CHANNEL_ID}::qy-seedance-2.0`,
     textModel: "default::gpt-5.5",
     audioModel: `${ORANGE_MOON_CHANNEL_ID}::speech-2.8-hd`,
     audioVoice: "alloy",

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 
-import { estimateProviderCost, findProviderModel, METAJING_IMAGE_SIZES, providerUsdToCny, PROVIDER_CATALOG_VERSION, PROVIDER_MODELS, PUBLIC_PROVIDER_MODELS } from "./provider-catalog.js";
+import { estimateProviderCost, findProviderModel, isExclusiveVideoModelId, METAJING_IMAGE_SIZES, providerBilling, providerUsdToCny, PROVIDER_CATALOG_VERSION, PROVIDER_MODELS, PUBLIC_PROVIDER_MODELS, resolveProviderVideoResolution, type ProviderVideoResolution } from "./provider-catalog.js";
 
 const METAJING_BASE_URL = "https://metajing.cn";
 const MINIMAX_BASE_URL = "https://api.minimax.io";
@@ -32,8 +32,9 @@ const imageRequestSchema = z
 const videoRequestSchema = z
     .object({
         model: z.string().trim().min(1),
-        prompt: z.string().trim().min(1).max(4000),
+        prompt: z.string().trim().min(1).max(10_000),
         duration: z.coerce.number().int(),
+        resolution: z.enum(["480p", "720p", "1080p"]).optional(),
         aspect_ratio: z.string().trim(),
         images: z.array(z.string().trim()).default([]),
         videos: z.array(z.string().trim()).default([]),
@@ -44,10 +45,12 @@ const videoRequestSchema = z
     .strict()
     .superRefine((input, context) => {
         const model = findProviderModel(input.model);
-        if (!model || model.provider !== "metajing" || model.capability !== "video") {
-            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "不是橙月画布已登记的 Seedance 2.0 模型" });
+        if (!model || model.provider !== "metajing" || model.capability !== "video" || !isExclusiveVideoModelId(input.model)) {
+            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "该视频模型已停用，橙月画布只允许四个独家视频 API" });
             return;
         }
+        if (!resolveProviderVideoResolution(model, input.resolution)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["resolution"], message: `该模型只支持 ${(model.resolutions || []).join("、")}` });
+        if (input.prompt.length > (model.maxPromptChars || 4_000)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["prompt"], message: `该模型提示词不能超过 ${model.maxPromptChars || 4_000} 个字符` });
         if (model.fixedDuration && input.duration !== model.fixedDuration) context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: `该模型固定生成 ${model.fixedDuration} 秒` });
         if (!model.fixedDuration && (input.duration < (model.minDuration || 5) || input.duration > (model.maxDuration || 15))) {
             context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: `时长需要在 ${model.minDuration || 5}-${model.maxDuration || 15} 秒之间` });
@@ -100,8 +103,11 @@ export function registerProviderGateway(app: Express) {
             providers: status,
             image: { maxCount: 4, maxReferences: 1, sizes: METAJING_IMAGE_SIZES },
             models: PUBLIC_PROVIDER_MODELS.map((model) => {
-                const { upstreamModel: _upstreamModel, upstreamSource: _upstreamSource, ...publicModel } = model;
-                return { ...publicModel, examples: providerCostExamples(model) };
+                return {
+                    ...model,
+                    examples: providerCostExamples(model, model.defaultResolution),
+                    ...(model.capability === "video" ? { resolutionExamples: Object.fromEntries((model.resolutions || []).map((resolution) => [resolution, providerCostExamples(model, resolution)])) } : {}),
+                };
             }),
         });
     }));
@@ -117,8 +123,11 @@ export function registerProviderGateway(app: Express) {
         const payload = videoRequestSchema.parse(req.body);
         const config = metaJingConfig();
         const model = findProviderModel(payload.model);
-        const upstreamPayload = { ...payload, ...(model?.upstreamModel ? { model: model.upstreamModel } : {}), ...(model?.resolution ? { resolution: model.resolution } : {}) };
-        const headers = providerHeaders(config.apiKey, model?.upstreamSource ? { "x-aihub-source": model.upstreamSource } : undefined);
+        if (!model || model.capability !== "video" || !isExclusiveVideoModelId(payload.model)) throw new ProviderGatewayError(400, "该视频模型已停用，禁止调用上游");
+        const resolution = resolveProviderVideoResolution(model, payload.resolution);
+        if (!resolution) throw new ProviderGatewayError(400, `${model.label} 不支持 ${payload.resolution || "当前"} 分辨率`);
+        const upstreamPayload = { ...payload, model: model.id, resolution };
+        const headers = providerHeaders(config.apiKey);
         const result = await upstreamJson(`${config.baseUrl}/v1/video/generations`, { method: "POST", headers, body: JSON.stringify(upstreamPayload) }, 120_000);
         res.setHeader("Cache-Control", "no-store").json(result);
     }));
@@ -194,10 +203,11 @@ function readSecret(envName: string, keychainService: string) {
     }
 }
 
-function providerCostExamples(model: (typeof PROVIDER_MODELS)[number]) {
+function providerCostExamples(model: (typeof PROVIDER_MODELS)[number], resolution?: ProviderVideoResolution) {
     if (model.capability === "image") return [{ quantity: 1, unit: "张", ...estimateProviderCost(model, 1) }];
     if (model.capability === "audio") return [{ quantity: 1000, unit: "字符", ...estimateProviderCost(model, 1000) }];
-    return (model.recommendedDurations || [5, 10, 15]).map((duration) => ({ quantity: duration, unit: model.billing.unit === "generation" ? "秒/条" : "秒", ...estimateProviderCost(model, model.billing.unit === "generation" ? 1 : duration) }));
+    const billing = providerBilling(model, resolution);
+    return (model.recommendedDurations || [5, 10, 15]).map((duration) => ({ quantity: duration, unit: billing?.unit === "generation" ? "秒/条" : "秒", ...estimateProviderCost(model, duration, resolution) }));
 }
 
 function validImageSize(value: string) {

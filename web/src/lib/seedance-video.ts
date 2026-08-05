@@ -64,7 +64,7 @@ export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" 
 
 export function isSeedanceVideoModel(model: string) {
     const value = model.toLowerCase();
-    return value.includes("seedance") || value.includes("doubao-seedance");
+    return Boolean(getOrangeMoonVideoProduct(model)) || value.includes("seedance") || value.includes("doubao-seedance");
 }
 
 export function isSeedanceFastModel(model: string) {

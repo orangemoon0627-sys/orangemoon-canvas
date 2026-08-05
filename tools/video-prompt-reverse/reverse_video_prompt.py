@@ -45,7 +45,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("source", help="本地视频路径、视频 URL，或包含抖音短链的分享文字")
     parser.add_argument("-o", "--output", type=Path, help="输出目录，默认 ./video-prompt-reverse-output")
-    parser.add_argument("--profile", choices=("fast", "standard", "detailed"), default="standard", help="抽帧密度")
+    parser.add_argument("--profile", choices=("fast", "standard", "detailed"), default="standard", help="抽帧密度，默认标准抽帧；视觉分析最多发送 8 帧")
     parser.add_argument("--max-frame-edge", type=int, default=960, help="抽帧 JPG 最长边，默认 960")
     parser.add_argument("--ffmpeg", default=os.environ.get("FFMPEG_BIN", "ffmpeg"), help="ffmpeg 可执行文件")
     parser.add_argument("--ffprobe", default=os.environ.get("FFPROBE_BIN", "ffprobe"), help="ffprobe 可执行文件")
@@ -53,7 +53,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--allow-ytdlp", action="store_true", help="下载器不可用时，显式允许调用本机 yt-dlp 回退")
     parser.add_argument("--overwrite", action="store_true", help="覆盖输出目录中的本工具产物")
     parser.add_argument("--analyze", action="store_true", help="显式调用视觉模型分析；不传时只在本机抽帧，零模型费用")
-    parser.add_argument("--analysis-frame-limit", type=int, default=16, help="发送给视觉模型的最大帧数，默认 16")
+    parser.add_argument("--analysis-frame-limit", type=int, default=8, help="发送给视觉模型的最大帧数，默认 8")
     parser.add_argument("--api-timeout", type=float, default=180, help="视觉模型请求超时秒数，默认 180")
     return parser.parse_args(argv)
 
@@ -452,6 +452,14 @@ def render_seedance_markdown(result: dict[str, Any], manifest: dict[str, Any]) -
     lines.extend(["", "## 不确定项", ""])
     uncertainties = result["uncertainties"] if isinstance(result["uncertainties"], list) else [result["uncertainties"]]
     lines.extend(f"- {display_value(item)}" for item in uncertainties)
+    lines.extend(
+        [
+            "",
+            "## 原创改写建议",
+            "",
+            "本页 Seedance 提示词用于还原参考片的结构证据，不建议直接发布。进入原创改写时，只保留构图、节奏、主运镜、转场和材质逻辑；至少替换人物身份、叙事目标、世界观、地点、道具、关系或情绪落点中的五类，并移除可识别的专有角色、标识和台词。画布 Agent 可直接使用“一键改写最近反推稿”，无需重新下载视频或抽帧。",
+        ]
+    )
     return "\n".join(lines).rstrip() + "\n"
 
 
