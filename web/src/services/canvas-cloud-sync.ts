@@ -131,14 +131,21 @@ export function portableProjectData(project: CanvasProject) {
     }) as Record<string, unknown>;
 }
 
-function portableValue(value: unknown): unknown {
+function portableValue(value: unknown, hasStoredMedia = false): unknown {
     if (typeof value === "string") {
+        if (hasStoredMedia && isLocalMediaUrl(value)) return undefined;
         if (isLocalMediaUrl(value)) throw new Error("画布仍包含未完成存储的本地媒体，已保留本地项目并等待恢复后重试");
         return value;
     }
-    if (Array.isArray(value)) return value.map(portableValue);
+    if (Array.isArray(value)) return value.map((item) => portableValue(item, hasStoredMedia)).filter((item) => item !== undefined);
     if (!value || typeof value !== "object") return value;
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, portableValue(item)]));
+    const record = value as Record<string, unknown>;
+    const objectHasStoredMedia = hasStoredMedia || (typeof record.storageKey === "string" && record.storageKey.length > 0);
+    return Object.fromEntries(
+        Object.entries(record)
+            .map(([key, item]) => [key, portableValue(item, objectHasStoredMedia)] as const)
+            .filter(([, item]) => item !== undefined),
+    );
 }
 
 function platformCanvasProjectToLocal(project: PlatformCanvasProject): CanvasProject {
