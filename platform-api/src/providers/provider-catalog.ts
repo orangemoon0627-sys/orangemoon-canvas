@@ -1,9 +1,9 @@
-export const PROVIDER_CATALOG_VERSION = "orangemoon-provider-v7-three-exclusive-video";
+export const PROVIDER_CATALOG_VERSION = "orangemoon-provider-v8-two-exclusive-video";
 
 export type ProviderCapability = "image" | "video" | "audio";
 export type ProviderModelVisibility = "public" | "legacy";
 export type ProviderVideoResolution = "480p" | "720p" | "1080p";
-export type ProviderVideoTier = "fast" | "standard" | "pro";
+export type ProviderVideoTier = "fast" | "standard";
 export type ProviderBilling =
     | { unit: "image"; usd: number }
     | { unit: "second"; usd: number }
@@ -37,15 +37,12 @@ export type ProviderModel = {
 export const EXCLUSIVE_VIDEO_MODEL_IDS = [
     "qy-seedance-2.0-fast",
     "qy-seedance-2.0",
-    "431-Seedream-2.0",
 ] as const;
 
 const EXCLUSIVE_VIDEO_MODEL_ID_SET = new Set<string>(EXCLUSIVE_VIDEO_MODEL_IDS);
 const MB = 1024 * 1024;
 const QY_REFERENCES = { images: 9, videos: 3, audios: 3, imageMaxBytes: 12 * MB, videoMaxBytes: 50_000_000, audioMaxBytes: 16 * MB };
-const MODEL_431_REFERENCES = { images: 4, videos: 3, audios: 1, imageMaxBytes: 20_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000 };
 const QY_RATIOS = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
-const MODEL_431_RATIOS = [...QY_RATIOS, "9:21"];
 
 function videoModel(
     id: (typeof EXCLUSIVE_VIDEO_MODEL_IDS)[number],
@@ -104,15 +101,6 @@ export const PROVIDER_MODELS: ProviderModel[] = [
         recommendedDurations: [5, 10, 15],
         aspectRatios: QY_RATIOS,
         description: "清衍独家标准通道，支持 480P/720P/1080P、原生声音及图片、视频、音频参考",
-    }),
-    videoModel("431-Seedream-2.0", "Seedance 2.0（431 独家）", { "480p": 0.148, "720p": 0.215, "1080p": 0.37 }, "720p", MODEL_431_REFERENCES, {
-        tier: "pro",
-        maxPromptChars: 10_000,
-        minDuration: 4,
-        maxDuration: 15,
-        recommendedDurations: [4, 5, 10, 15],
-        aspectRatios: MODEL_431_RATIOS,
-        description: "431 独家通道，支持 4-15 秒、480P/720P/1080P、原生声音及全能参考",
     }),
     { id: "speech-2.8-hd", label: "MiniMax Speech 2.8 HD", provider: "minimax", capability: "audio", visibility: "public", billing: { unit: "million_characters", usd: 100 }, description: "高保真语音合成，支持停顿、情绪和语气标签" },
     { id: "speech-2.8-turbo", label: "MiniMax Speech 2.8 Turbo", provider: "minimax", capability: "audio", visibility: "public", billing: { unit: "million_characters", usd: 60 }, description: "低成本语音合成，支持停顿、情绪和语气标签" },

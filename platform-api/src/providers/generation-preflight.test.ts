@@ -39,7 +39,7 @@ test("供应商未配置时在冻结积分和创建任务前拒绝生图", async
     assert.equal(reservationAttempts, 0);
 });
 
-test("旧视频模型在配置检查和积分预授权前被拒绝", async () => {
+test("已移除的 431 模型在配置检查和积分预授权前被拒绝", async () => {
     let upstreamChecks = 0;
     let reservationAttempts = 0;
     const upstream = {
@@ -57,7 +57,7 @@ test("旧视频模型在配置检查和积分预授权前被拒绝", async () =>
 
     await assert.rejects(
         service.createVideo("user-1", "video-preflight-1", {
-            model: "mg-seedance2.0 -720p fast",
+            model: "431-Seedream-2.0",
             prompt: "测试视频",
             duration: 5,
             resolution: "720p",
@@ -92,6 +92,7 @@ test("视频通道缺失时提示已退款和可用替代模型", () => {
     assert.match(error.message, /未扣费，预授权已自动退回/);
     assert.match(error.message, /Seedance 2\.0 Fast（清衍独家）/);
     assert.doesNotMatch(error.message, /Fast 720P（独家）/);
+    assert.doesNotMatch(error.message, /431/);
 });
 
 test("视频创建兼容 MetaJing task_id 响应", () => {

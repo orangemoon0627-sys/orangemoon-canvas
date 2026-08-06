@@ -24,17 +24,19 @@ test("MetaJing 按额度 1:1、MiniMax 按 7.3 汇率分别计价", () => {
     assert.equal(audio.retailMilliCredits, 723n);
 });
 
-test("三个独家视频 API 按型号、分辨率和时长计费", () => {
+test("两个独家视频 API 按官方每秒费率计费", () => {
     const qyFast = findProviderModel("qy-seedance-2.0-fast")!;
     const qy = findProviderModel("qy-seedance-2.0")!;
-    const model431 = findProviderModel("431-Seedream-2.0")!;
 
+    assert.equal(pricing.quote(qyFast, 1, "480p").retailCredits, "0.275");
+    assert.equal(pricing.quote(qyFast, 1, "720p").retailCredits, "0.33");
+    assert.equal(pricing.quote(qy, 1, "480p").retailCredits, "0.33");
+    assert.equal(pricing.quote(qy, 1, "720p").retailCredits, "0.44");
+    assert.equal(pricing.quote(qy, 1, "1080p").retailCredits, "0.99");
     assert.equal(pricing.quote(qyFast, 5, "480p").retailCredits, "1.375");
     assert.equal(pricing.quote(qyFast, 5, "720p").retailCredits, "1.65");
     assert.equal(pricing.quote(qy, 15, "720p").retailCredits, "6.6");
     assert.equal(pricing.quote(qy, 15, "1080p").retailCredits, "14.85");
-    assert.equal(pricing.quote(model431, 4, "480p").retailCredits, "0.977");
-    assert.equal(pricing.quote(model431, 15, "720p").retailCredits, "5.322");
 });
 
 test("不支持的分辨率不能报价", () => {

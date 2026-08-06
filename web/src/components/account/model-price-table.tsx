@@ -69,6 +69,6 @@ function exampleValue(example: ProviderPriceExample, mode: "retail" | "cost" | "
 }
 
 function capabilityLabel(value: ProviderCatalogModel["capability"]) { return value === "image" ? "图片" : value === "video" ? "视频" : "配音"; }
-function tierLabel(value: NonNullable<ProviderCatalogModel["tier"]>) { return value === "fast" ? "Fast" : value === "standard" ? "标准" : "Pro"; }
-function tierColor(value: NonNullable<ProviderCatalogModel["tier"]>) { return value === "fast" ? "cyan" : value === "pro" ? "gold" : "default"; }
+function tierLabel(value: NonNullable<ProviderCatalogModel["tier"]>) { return value === "fast" ? "Fast" : "标准"; }
+function tierColor(value: NonNullable<ProviderCatalogModel["tier"]>) { return value === "fast" ? "cyan" : "default"; }
 function formatNumber(value: number, digits: number) { return value.toFixed(digits).replace(/0+$/, "").replace(/\.$/, ""); }

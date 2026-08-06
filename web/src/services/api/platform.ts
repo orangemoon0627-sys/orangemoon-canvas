@@ -165,7 +165,7 @@ export type ProviderCatalogModel = {
     resolutions?: Array<"480p" | "720p" | "1080p">;
     defaultResolution?: "480p" | "720p" | "1080p";
     exclusive?: boolean;
-    tier?: "fast" | "standard" | "pro";
+    tier?: "fast" | "standard";
     minDuration?: number;
     maxDuration?: number;
     fixedDuration?: number;

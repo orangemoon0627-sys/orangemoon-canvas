@@ -5,14 +5,13 @@ export const ORANGE_MOON_GATEWAY_URL = "canvas-agent://providers";
 export const ORANGE_MOON_VIDEO_MODEL_IDS = [
     "qy-seedance-2.0-fast",
     "qy-seedance-2.0",
-    "431-Seedream-2.0",
 ] as const;
 
 export type OrangeMoonModelCapability = "image" | "video" | "audio";
 export type OrangeMoonModel = { name: string; capability: OrangeMoonModelCapability };
 export type OrangeMoonVideoProductName = (typeof ORANGE_MOON_VIDEO_MODEL_IDS)[number];
 export type OrangeMoonVideoResolution = "480p" | "720p" | "1080p";
-export type OrangeMoonVideoTier = "fast" | "standard" | "pro";
+export type OrangeMoonVideoTier = "fast" | "standard";
 export type OrangeMoonVideoModel = {
     name: OrangeMoonVideoProductName;
     label: string;
@@ -44,7 +43,6 @@ export type OrangeMoonVideoProduct = {
 
 const MB = 1024 * 1024;
 const qyReferences = { images: 9, videos: 3, audios: 3, imageMaxBytes: 12 * MB, videoMaxBytes: 50_000_000, audioMaxBytes: 16 * MB };
-const model431References = { images: 4, videos: 3, audios: 1, imageMaxBytes: 20_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000 };
 const qyRatios = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
 
 export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
@@ -76,19 +74,6 @@ export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
         aspectRatios: qyRatios,
         references: qyReferences,
     },
-    {
-        name: "431-Seedream-2.0",
-        label: "Seedance 2.0（431 独家）",
-        tier: "pro",
-        resolutions: ["480p", "720p", "1080p"],
-        defaultResolution: "720p",
-        rates: { "480p": 0.148, "720p": 0.215, "1080p": 0.37 },
-        minDuration: 4,
-        maxDuration: 15,
-        durations: Array.from({ length: 12 }, (_, index) => index + 4),
-        aspectRatios: [...qyRatios, "9:21"],
-        references: model431References,
-    },
 ];
 
 export const ORANGE_MOON_MODELS: OrangeMoonModel[] = [
@@ -99,6 +84,8 @@ export const ORANGE_MOON_MODELS: OrangeMoonModel[] = [
 ];
 
 const LEGACY_TO_CURRENT: Record<string, OrangeMoonVideoProductName> = {
+    "431-Seedream-2.0": "qy-seedance-2.0",
+    "Seedance 2.0（431 独家）": "qy-seedance-2.0",
     "seedance-2.0": "qy-seedance-2.0",
     "seedance-2.0-fast": "qy-seedance-2.0-fast",
     "seedance-2.0-mini": "qy-seedance-2.0-fast",
