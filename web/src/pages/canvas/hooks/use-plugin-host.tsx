@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, type Dispatch, type MutableRefObject, 
 
 import { requestEdit, requestGeneration, requestImageQuestion, type AiTextMessage } from "@/services/api/image";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
-import { decodeChannelModel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { modelOptionLabel, modelOptionPublicValue, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { buildGenerationConfig } from "@/lib/canvas/canvas-generation-helpers";
 import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
@@ -72,9 +72,9 @@ export function usePluginHost(params: PluginHostParams) {
                 const text = await requestImageQuestion(config, messages, (delta) => options?.onDelta?.(delta), { signal: options?.signal });
                 return { text };
             },
-            // 列出某能力下用户已配置的模型;label 取编码值中的模型名(去掉 channel 前缀)
-            listModels: (capability) => selectableModelsByCapability(effectiveConfig, capability as ModelCapability | undefined).map((value) => ({ value, label: decodeChannelModel(value)?.model || value })),
-            defaultModel: (capability) => buildGenerationConfig(effectiveConfig, undefined, capability).model,
+            // 列出某能力下用户已配置的模型；显示名不暴露官方渠道的内部前缀。
+            listModels: (capability) => selectableModelsByCapability(effectiveConfig, capability as ModelCapability | undefined).map((value) => ({ value, label: modelOptionLabel(effectiveConfig, value) })),
+            defaultModel: (capability) => modelOptionPublicValue(effectiveConfig, buildGenerationConfig(effectiveConfig, undefined, capability).model),
         };
     }, [effectiveConfig, isAiConfigReady, openConfigDialog]);
 

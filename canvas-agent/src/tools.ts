@@ -17,14 +17,14 @@ export function compactCanvasState(state: CanvasSnapshot | null) {
 }
 
 export function compactNode(node: CanvasNode) {
-    const metadata = { ...(node.metadata || {}) };
+    const metadata = publicModelMetadata(node.metadata || {});
     if (typeof metadata.content === "string" && metadata.content.length > 240) metadata.content = `${metadata.content.slice(0, 120)}...`;
     return { id: node.id, type: node.type, title: node.title, position: node.position, width: node.width, height: node.height, metadata };
 }
 
 export function editableNode(node: CanvasNode) {
     if (node.type !== "text") return compactNode(node);
-    const metadata = { ...(node.metadata || {}) };
+    const metadata = publicModelMetadata(node.metadata || {});
     const content = typeof metadata.content === "string" ? metadata.content : typeof metadata.prompt === "string" ? metadata.prompt : "";
     if (content.length > MAX_EDITABLE_TEXT_CHARS) {
         metadata.content = content.slice(0, MAX_EDITABLE_TEXT_CHARS);
@@ -34,6 +34,18 @@ export function editableNode(node: CanvasNode) {
         metadata.content = content;
     }
     return { id: node.id, type: node.type, title: node.title, position: node.position, width: node.width, height: node.height, metadata };
+}
+
+function publicModelMetadata(metadata: Record<string, unknown>) {
+    const next = { ...metadata };
+    for (const key of ["model", "generationTaskModel"]) {
+        if (typeof next[key] === "string") next[key] = publicModelName(next[key]);
+    }
+    return next;
+}
+
+function publicModelName(value: string) {
+    return value.replace(/\bqy-(?=seedance-2\.0(?:-fast)?(?:[-:]|\b))/gi, "");
 }
 
 export function nextCanvasX(state: CanvasSnapshot | null) {

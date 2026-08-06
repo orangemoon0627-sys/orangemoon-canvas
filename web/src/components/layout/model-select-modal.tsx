@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { fetchChannelModels } from "@/services/api/image";
 import type { ModelChannel } from "@/stores/use-config-store";
+import { getOrangeMoonModelPublicName, ORANGE_MOON_PROVIDER } from "@/lib/orange-moon-provider";
 
 // 选择渠道模型弹窗：拉取上游模型列表或手动增加，勾选后才会进入渠道模型列表。
 export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onClose }: { open: boolean; channel: ModelChannel | null; selectedNames: string[]; onConfirm: (names: string[]) => void; onClose: () => void }) {
@@ -29,8 +30,8 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
     const currentList = activeTab === "new" ? fetched : existing;
     const visibleList = useMemo(() => {
         const keyword = search.trim().toLowerCase();
-        return keyword ? currentList.filter((name) => name.toLowerCase().includes(keyword)) : currentList;
-    }, [currentList, search]);
+        return keyword ? currentList.filter((name) => name.toLowerCase().includes(keyword) || displayModelName(channel, name).toLowerCase().includes(keyword)) : currentList;
+    }, [channel, currentList, search]);
     const visibleSelectedCount = visibleList.filter((name) => selected.has(name)).length;
 
     const toggle = (name: string, checked: boolean) =>
@@ -139,8 +140,8 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
                 <div className="grid grid-cols-1 gap-x-8 gap-y-3 md:grid-cols-2">
                     {visibleList.map((name) => (
                         <Checkbox key={name} checked={selected.has(name)} onChange={(event) => toggle(name, event.target.checked)}>
-                            <span className="truncate" title={name}>
-                                {name}
+                            <span className="truncate" title={displayModelName(channel, name)}>
+                                {displayModelName(channel, name)}
                             </span>
                         </Checkbox>
                     ))}
@@ -150,4 +151,8 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
             )}
         </Modal>
     );
+}
+
+function displayModelName(channel: ModelChannel | null, name: string) {
+    return channel?.provider === ORANGE_MOON_PROVIDER ? getOrangeMoonModelPublicName(name) : name;
 }

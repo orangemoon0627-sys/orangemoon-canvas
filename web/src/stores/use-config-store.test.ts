@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ORANGE_MOON_CHANNEL_ID, ORANGE_MOON_PROVIDER } from "@/lib/orange-moon-provider";
-import { createModelChannel, createOrangeMoonChannel, defaultConfig, encodeChannelModel, normalizeModelOptionValue, resolveModelChannel, selectableModelsByCapability } from "./use-config-store";
+import { createModelChannel, createOrangeMoonChannel, defaultConfig, encodeChannelModel, modelOptionPublicName, modelOptionPublicValue, normalizeModelOptionValue, resolveModelChannel, selectableModelsByCapability } from "./use-config-store";
 
 test("hides custom models that duplicate an official product or legacy alias", () => {
     const official = createOrangeMoonChannel();
@@ -73,4 +73,14 @@ test("routes legacy canvas model names through the managed Orange Moon channel",
 
     assert.equal(resolveModelChannel(config, "mg-seedance2.0 -720p-gz-15s").provider, ORANGE_MOON_PROVIDER);
     assert.equal(resolveModelChannel(config, encodeChannelModel("custom", "mg-seedance2.0 -720p-gz-15s")).provider, ORANGE_MOON_PROVIDER);
+});
+
+test("exposes public aliases for official models without changing custom channel values", () => {
+    const official = createOrangeMoonChannel();
+    const custom = createModelChannel({ id: "custom", models: [{ name: "custom-video", capability: "video" }] });
+    const config = { ...defaultConfig, channels: [official, custom] };
+
+    assert.equal(modelOptionPublicName("qy-seedance-2.0-fast"), "seedance-2.0-fast");
+    assert.equal(modelOptionPublicValue(config, encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.0-fast")), "seedance-2.0-fast");
+    assert.equal(modelOptionPublicValue(config, encodeChannelModel("custom", "custom-video")), encodeChannelModel("custom", "custom-video"));
 });

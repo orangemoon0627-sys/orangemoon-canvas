@@ -7,7 +7,7 @@ import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
+import { modelOptionLabel, modelOptionPublicName, modelOptionPublicValue, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 
 // 在网页端执行 Agent 的「站点级」工具（画布列表、工作台生成、提示词搜索、资产增删查等）。
@@ -144,8 +144,8 @@ function getImageConfig() {
     const { config } = useConfigStore.getState();
     const model = config.imageModel || config.model;
     return {
-        current: { model, modelName: modelOptionName(model), quality: config.quality || "auto", size: config.size || "1:1", count: config.count || "1" },
-        models: selectableModelsByCapability(config, "image").map((value) => ({ value, label: modelOptionLabel(config, value) })),
+        current: { model: modelOptionPublicValue(config, model), modelName: modelOptionPublicName(model), quality: config.quality || "auto", size: config.size || "1:1", count: config.count || "1" },
+        models: selectableModelsByCapability(config, "image").map((value) => ({ value: modelOptionPublicValue(config, value), label: modelOptionLabel(config, value) })),
         qualityOptions: imageQualityOptions,
         sizeOptions: imageAspectOptions,
         countRange: { min: 1, max: 15 },
@@ -158,7 +158,7 @@ function runImageWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     if (typeof input.model === "string" && input.model.trim()) {
         const value = normalizeModelOptionValue(input.model, configStore.config.channels) || input.model;
         configStore.updateConfig("imageModel", value);
-        applied.model = value;
+        applied.model = modelOptionPublicValue(configStore.config, value);
     }
     if (typeof input.quality === "string" && input.quality.trim()) {
         configStore.updateConfig("quality", input.quality);
@@ -185,15 +185,15 @@ function getVideoConfig() {
     const model = config.videoModel || config.model;
     return {
         current: {
-            model,
-            modelName: modelOptionName(model),
+            model: modelOptionPublicValue(config, model),
+            modelName: modelOptionPublicName(model),
             size: config.size || "1280x720",
             seconds: config.videoSeconds || "6",
             resolution: config.vquality || "720",
             generateAudio: config.videoGenerateAudio !== "false",
             watermark: config.videoWatermark === "true",
         },
-        models: selectableModelsByCapability(config, "video").map((value) => ({ value, label: modelOptionLabel(config, value) })),
+        models: selectableModelsByCapability(config, "video").map((value) => ({ value: modelOptionPublicValue(config, value), label: modelOptionLabel(config, value) })),
         sizeOptions: videoSizeOptions,
         secondsOptions: videoSecondOptions,
         resolutionOptions: videoResolutionOptions,
@@ -206,7 +206,7 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     if (typeof input.model === "string" && input.model.trim()) {
         const value = normalizeModelOptionValue(input.model, configStore.config.channels) || input.model;
         configStore.updateConfig("videoModel", value);
-        applied.model = value;
+        applied.model = modelOptionPublicValue(configStore.config, value);
     }
     if (typeof input.size === "string" && input.size.trim()) {
         configStore.updateConfig("size", input.size);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { canonicalOrangeMoonVideoModel, getOrangeMoonVideoModel, ORANGE_MOON_VIDEO_MODEL_IDS, ORANGE_MOON_VIDEO_MODELS } from "./orange-moon-provider";
+import { canonicalOrangeMoonVideoModel, getOrangeMoonModelPublicName, getOrangeMoonVideoModel, ORANGE_MOON_VIDEO_MODEL_IDS, ORANGE_MOON_VIDEO_MODELS, removeOrangeMoonInternalModelPrefix } from "./orange-moon-provider";
 import { normalizeSeedanceDurationForModel } from "./seedance-video";
 
 test("only exposes the two exclusive video APIs and resolves their supported resolutions", () => {
@@ -23,4 +23,10 @@ test("legacy browser selections migrate one-way to an allowed API", () => {
     assert.equal(canonicalOrangeMoonVideoModel("431-Seedream-2.0"), "qy-seedance-2.0");
     assert.equal(getOrangeMoonVideoModel("431-Seedream-2.0")?.name, "qy-seedance-2.0");
     assert.equal(normalizeSeedanceDurationForModel("431-Seedream-2.0", "8"), 10);
+});
+
+test("public model names hide the internal qy prefix while preserving the real model ids", () => {
+    assert.equal(getOrangeMoonModelPublicName("qy-seedance-2.0-fast"), "seedance-2.0-fast");
+    assert.equal(getOrangeMoonModelPublicName("qy-seedance-2.0"), "seedance-2.0");
+    assert.equal(removeOrangeMoonInternalModelPrefix("当前使用 qy-seedance-2.0-fast"), "当前使用 seedance-2.0-fast");
 });

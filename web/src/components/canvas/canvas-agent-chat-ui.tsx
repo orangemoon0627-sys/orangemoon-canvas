@@ -5,7 +5,7 @@ import { Streamdown } from "streamdown";
 
 import { isPlainEnterKey } from "@/lib/keyboard-event";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { getOrangeMoonModelLabel } from "@/lib/orange-moon-provider";
+import { getOrangeMoonModelLabel, removeOrangeMoonInternalModelPrefix } from "@/lib/orange-moon-provider";
 import type { LocalUser } from "@/stores/use-user-store";
 import type { AgentWorkflowPreview, AgentWorkflowPreviewStage } from "@/lib/agent/agent-workflow-preview";
 import type { AgentGenerationPlanItem } from "@/lib/agent/agent-generation-plan";
@@ -55,11 +55,12 @@ export function AgentChatMessage({
     const isUser = item.role === "user";
     const isSystem = item.role === "system";
     const color = item.role === "error" ? "#dc2626" : item.role === "tool" ? "#2563eb" : theme.node.text;
+    const displayText = isUser ? item.text : removeOrangeMoonInternalModelPrefix(item.text);
     if (isSystem) {
         return (
             <div className="flex justify-center text-xs">
                 <div className="max-w-[88%] px-3 py-1.5 text-center" style={{ color: theme.node.muted }}>
-                    {item.text}
+                    {displayText}
                     {item.meta ? <span className="ml-2 opacity-60">{item.meta}</span> : null}
                 </div>
             </div>
@@ -70,7 +71,7 @@ export function AgentChatMessage({
         return (
             <div className="flex items-start gap-3">
                 <AgentAvatar theme={theme} />
-                <AgentToolCard title={item.title || "工具调用"} text={item.text} detail={item.detail} theme={theme} />
+                <AgentToolCard title={item.title || "工具调用"} text={displayText} detail={item.detail} theme={theme} />
             </div>
         );
     }
@@ -93,7 +94,7 @@ export function AgentChatMessage({
                     <div className="whitespace-pre-wrap break-words">{item.text}</div>
                 ) : (
                     <Streamdown animated isAnimating={!!item.streamId}>
-                        {item.text}
+                        {displayText}
                     </Streamdown>
                 )}
                 {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} /> : null}
@@ -125,6 +126,7 @@ export function AgentPendingToolCard({
     onReject?: () => void;
     onApprove?: () => void;
 }) {
+    const displaySummary = removeOrangeMoonInternalModelPrefix(summary);
     return (
         <div className="flex items-start gap-3">
             <AgentAvatar theme={theme} />
@@ -137,7 +139,7 @@ export function AgentPendingToolCard({
                             </span>
                             <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-5">
-                                    <span>{preview?.title || "确认工具调用"}</span>
+                                    <span>{removeOrangeMoonInternalModelPrefix(preview?.title || "确认工具调用")}</span>
                                     <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium" style={{ borderColor: "rgba(217,119,6,.22)", color: "#d97706", background: "rgba(217,119,6,.04)" }}>
                                         待审核
                                     </span>
@@ -148,7 +150,7 @@ export function AgentPendingToolCard({
                                     ) : null}
                                 </div>
                                 <div className="mt-2 text-sm leading-6" style={{ color: theme.node.text }}>
-                                    {preview?.summary || summary}
+                                    {removeOrangeMoonInternalModelPrefix(preview?.summary || displaySummary)}
                                 </div>
                             </div>
                         </div>
@@ -181,8 +183,8 @@ export function AgentPendingToolCard({
                                     </div>
                                     <div className="mt-1 space-y-0.5 text-sm leading-5">
                                         {stage.items.map((item) => (
-                                            <div key={item} className="truncate" title={item}>
-                                                {item}
+                                            <div key={item} className="truncate" title={removeOrangeMoonInternalModelPrefix(item)}>
+                                                {removeOrangeMoonInternalModelPrefix(item)}
                                             </div>
                                         ))}
                                     </div>
@@ -226,7 +228,7 @@ function AgentGenerationReviewPanel({ review, theme }: { review: AgentGeneration
                         <span style={{ color: theme.node.muted }}>可用 <strong style={{ color: theme.node.text }}>{review.walletCredits || "0"}</strong> 积分</span>
                         <span>本次预计 <strong className={review.insufficient ? "text-red-600" : ""}>{review.quoteLoading ? "计算中" : review.quote?.totalCredits || "0"}</strong> 积分</span>
                     </div>
-                    {review.quoteError ? <div className="mt-1 text-red-600">{review.quoteError}</div> : review.insufficient ? <div className="mt-1 text-red-600">积分不足，方案不会执行。可更换低价模型或充值。</div> : null}
+                                    {review.quoteError ? <div className="mt-1 text-red-600">{removeOrangeMoonInternalModelPrefix(review.quoteError)}</div> : review.insufficient ? <div className="mt-1 text-red-600">积分不足，方案不会执行。可更换低价模型或充值。</div> : null}
                 </div>
                 <Button size="small" type="text" icon={<Coins className="size-3.5" />} onClick={review.onRecharge}>充值</Button>
             </div>
@@ -305,7 +307,7 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
                     </span>
                     <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-5">
-                            <span className="min-w-0 truncate">{title}</span>
+                            <span className="min-w-0 truncate">{removeOrangeMoonInternalModelPrefix(title)}</span>
                             <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium" style={{ borderColor: state.softBorder, color: state.color, background: state.softBg }}>
                                 {state.label}
                             </span>
@@ -500,9 +502,10 @@ export function AgentPanelTabs<T extends string>({
 }
 
 function AgentDetailBlock({ detail, theme }: { detail: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const serialized = JSON.stringify(detail, null, 2) || "";
     return (
         <pre className="thin-scrollbar mt-3 max-h-64 overflow-auto rounded-lg border p-3 text-[11px] leading-4" style={{ borderColor: theme.node.stroke, background: theme.toolbar.panel, color: theme.node.muted }}>
-            {JSON.stringify(detail, null, 2)}
+            {removeOrangeMoonInternalModelPrefix(serialized)}
         </pre>
     );
 }

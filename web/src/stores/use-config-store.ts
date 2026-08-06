@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
-import { canonicalOrangeMoonVideoModel, getOrangeMoonModelLabel, ORANGE_MOON_CHANNEL_ID, ORANGE_MOON_GATEWAY_URL, ORANGE_MOON_MODELS, ORANGE_MOON_PROVIDER } from "@/lib/orange-moon-provider";
+import { canonicalOrangeMoonVideoModel, getOrangeMoonModelLabel, getOrangeMoonModelPublicName, ORANGE_MOON_CHANNEL_ID, ORANGE_MOON_GATEWAY_URL, ORANGE_MOON_MODELS, ORANGE_MOON_PROVIDER } from "@/lib/orange-moon-provider";
 
 export type ApiCallFormat = "openai" | "gemini";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -296,6 +296,17 @@ export function decodeChannelModel(value: string) {
 
 export function modelOptionName(value: string) {
     return decodeChannelModel(value)?.model || value;
+}
+
+export function modelOptionPublicName(value: string) {
+    return getOrangeMoonModelPublicName(modelOptionName(value));
+}
+
+export function modelOptionPublicValue(config: AiConfig, value: string) {
+    const decoded = decodeChannelModel(value);
+    if (!decoded) return modelOptionPublicName(value);
+    const channel = config.channels.find((item) => item.id === decoded.channelId);
+    return channel?.provider === ORANGE_MOON_PROVIDER ? modelOptionPublicName(decoded.model) : value;
 }
 
 export function modelOptionLabel(config: AiConfig, value: string) {

@@ -172,6 +172,16 @@ export function getOrangeMoonModelLabel(name: string) {
     return getOrangeMoonVideoProduct(name)?.label || name;
 }
 
+/** 用户可见的模型名不暴露供应商内部的 qy- 前缀。 */
+export function getOrangeMoonModelPublicName(name: string) {
+    const product = getOrangeMoonVideoProduct(name);
+    return removeOrangeMoonInternalModelPrefix(product?.name || name);
+}
+
+export function removeOrangeMoonInternalModelPrefix(value: string) {
+    return value.replace(/\bqy-(?=seedance-2\.0(?:-fast)?(?:[-:]|\b))/gi, "");
+}
+
 function normalizeResolution(value?: string): OrangeMoonVideoResolution | undefined {
     const normalized = String(value || "").trim().toLowerCase().replace(/p$/, "");
     if (normalized === "480" || normalized === "720" || normalized === "1080") return `${normalized}p` as OrangeMoonVideoResolution;
