@@ -2121,33 +2121,29 @@ function InfiniteCanvasPage() {
                 setSelectedNodeIds(new Set([preparedTarget.id]));
                 setSelectedConnectionId(null);
             }
-            const generationContext = await hydrateNodeGenerationContext(
-                buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? `请根据要求修改以下文本。\n\n原文：\n${sourceTextContent}\n\n修改要求：\n${prompt}` : prompt),
-            );
-            const effectivePrompt = generationContext.prompt.trim();
-            if (runController.signal.aborted) {
-                if (preparedTarget) {
-                    setNodes((prev) => prev.filter((node) => node.id !== preparedTarget.id));
-                    setConnections((prev) => prev.filter((connection) => connection.fromNodeId !== preparedTarget.id && connection.toNodeId !== preparedTarget.id));
-                }
-                finishGenerationRequest(nodeId, runController);
-                setRunningNodeId(null);
-                return;
-            }
             const markSourceStatus = sourceNode?.type !== CanvasNodeType.Image && !editingTextNode;
-            const statusPrompt = sourceNode?.type === CanvasNodeType.Config ? effectivePrompt : prompt;
-            if (!effectivePrompt && (mode === "text" || mode === "audio")) {
-                if (preparedTarget) {
-                    setNodes((prev) => prev.filter((node) => node.id !== preparedTarget.id));
-                    setConnections((prev) => prev.filter((connection) => connection.fromNodeId !== preparedTarget.id && connection.toNodeId !== preparedTarget.id));
-                }
-                finishGenerationRequest(nodeId, runController);
-                setRunningNodeId(null);
-                return;
-            }
-            if (markSourceStatus) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: generationLoadingMetadata(mode, { ...node.metadata, prompt: statusPrompt }) } : node)));
-
             try {
+                const generationContext = await hydrateNodeGenerationContext(
+                    buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? `请根据要求修改以下文本。\n\n原文：\n${sourceTextContent}\n\n修改要求：\n${prompt}` : prompt),
+                );
+                const effectivePrompt = generationContext.prompt.trim();
+                if (runController.signal.aborted) {
+                    if (preparedTarget) {
+                        setNodes((prev) => prev.filter((node) => node.id !== preparedTarget.id));
+                        setConnections((prev) => prev.filter((connection) => connection.fromNodeId !== preparedTarget.id && connection.toNodeId !== preparedTarget.id));
+                    }
+                    return;
+                }
+                const statusPrompt = sourceNode?.type === CanvasNodeType.Config ? effectivePrompt : prompt;
+                if (!effectivePrompt && (mode === "text" || mode === "audio")) {
+                    if (preparedTarget) {
+                        setNodes((prev) => prev.filter((node) => node.id !== preparedTarget.id));
+                        setConnections((prev) => prev.filter((connection) => connection.fromNodeId !== preparedTarget.id && connection.toNodeId !== preparedTarget.id));
+                    }
+                    return;
+                }
+                if (markSourceStatus) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: generationLoadingMetadata(mode, { ...node.metadata, prompt: statusPrompt }) } : node)));
+
                 if (mode === "image") {
                     const count = getGenerationCount(generationConfig.count);
                     const isConfigNode = sourceNode?.type === CanvasNodeType.Config;

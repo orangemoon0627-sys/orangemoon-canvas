@@ -12,6 +12,8 @@ test("only exposes the two exclusive video APIs and resolves their supported res
     assert.equal(getOrangeMoonVideoModel("qy-seedance-2.0-fast", "480p")?.price.usd, 1 / 6);
     assert.equal(normalizeSeedanceDurationForModel("qy-seedance-2.0", "8"), 10);
     assert.equal((ORANGE_MOON_VIDEO_MODEL_IDS as readonly string[]).includes("431-Seedream-2.0"), false);
+    assert.deepEqual(ORANGE_MOON_VIDEO_MODELS.map((model) => model.label), ["Seedance 2.0 Fast", "Seedance 2.0"]);
+    assert.ok(ORANGE_MOON_VIDEO_MODELS.every((model) => !model.label.includes("清衍独家")));
 });
 
 test("legacy browser selections migrate one-way to an allowed API", () => {

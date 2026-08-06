@@ -334,6 +334,6 @@ export function publicVideoGenerationError(error: unknown, input: Pick<VideoRequ
     const message = error instanceof Error ? error.message : String(error || "");
     if (!/no available channel for model/i.test(message)) return error;
     const selected = findProviderModel(input.model);
-    const fallback = input.model === "qy-seedance-2.0-fast" ? "Seedance 2.0（清衍独家）" : "Seedance 2.0 Fast（清衍独家）";
+    const fallback = input.model === "qy-seedance-2.0-fast" ? "Seedance 2.0" : "Seedance 2.0 Fast";
     return new ServiceUnavailableException(`MetaJing 当前没有为「${selected?.label || input.model}」开放生成通道。本次未扣费，预授权已自动退回；请切换到「${fallback}」后重试。`);
 }

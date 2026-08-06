@@ -111,7 +111,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:17400/platform-api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:17400/platform-api/health"]
       interval: 10s
       timeout: 3s
       retries: 12

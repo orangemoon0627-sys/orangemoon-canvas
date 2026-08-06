@@ -48,7 +48,7 @@ const qyRatios = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
 export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
     {
         name: "qy-seedance-2.0-fast",
-        label: "Seedance 2.0 Fast（清衍独家）",
+        label: "Seedance 2.0 Fast",
         tier: "fast",
         resolutions: ["480p", "720p"],
         defaultResolution: "720p",
@@ -62,7 +62,7 @@ export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
     },
     {
         name: "qy-seedance-2.0",
-        label: "Seedance 2.0（清衍独家）",
+        label: "Seedance 2.0",
         tier: "standard",
         resolutions: ["480p", "720p", "1080p"],
         defaultResolution: "720p",

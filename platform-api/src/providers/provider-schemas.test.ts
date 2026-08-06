@@ -13,7 +13,7 @@ const baseInput = {
     audios: [],
 };
 
-test("两个独家视频 API 都能通过请求校验", () => {
+test("两个 Seedance 视频 API 都能通过请求校验", () => {
     const requests = [
         { ...baseInput, model: "qy-seedance-2.0-fast" },
         { ...baseInput, model: "qy-seedance-2.0", resolution: "1080p" },
@@ -26,11 +26,11 @@ test("旧视频模型会在请求入口被拒绝", () => {
     for (const model of ["431-Seedream-2.0", "mg-seedance2.0 -720p fast", "Seedance 2.0-fast-720p"]) {
         const result = videoRequestSchema.safeParse({ ...baseInput, model });
         assert.equal(result.success, false);
-        if (!result.success) assert.match(result.error.issues.map((issue) => issue.message).join("；"), /只允许两个独家视频 API/);
+        if (!result.success) assert.match(result.error.issues.map((issue) => issue.message).join("；"), /只支持 Seedance 2\.0 Fast 和 Seedance 2\.0/);
     }
 });
 
-test("分辨率和时长按独家模型能力分别校验", () => {
+test("分辨率和时长按模型能力分别校验", () => {
     assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.0-fast", resolution: "1080p" }).success, false);
     assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.0-fast", duration: 6 }).success, false);
     assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.0", duration: 6 }).success, false);

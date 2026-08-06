@@ -82,7 +82,7 @@ export const PROVIDER_MODELS: ProviderModel[] = [
         billing: { unit: "image", usd: 0.06 },
         description: "文生图与单张参考图图生图，支持最长边 3840px，一次最多 4 张",
     },
-    videoModel("qy-seedance-2.0-fast", "Seedance 2.0 Fast（清衍独家）", { "480p": 1 / 6, "720p": 0.2 }, "720p", QY_REFERENCES, {
+    videoModel("qy-seedance-2.0-fast", "Seedance 2.0 Fast", { "480p": 1 / 6, "720p": 0.2 }, "720p", QY_REFERENCES, {
         tier: "fast",
         maxPromptChars: 2_500,
         minDuration: 5,
@@ -90,9 +90,9 @@ export const PROVIDER_MODELS: ProviderModel[] = [
         allowedDurations: [5, 10, 15],
         recommendedDurations: [5, 10, 15],
         aspectRatios: QY_RATIOS,
-        description: "清衍独家 Fast 通道，支持 480P/720P、原生声音及图片、视频、音频参考",
+        description: "Fast 通道，支持 480P/720P、原生声音及图片、视频、音频参考",
     }),
-    videoModel("qy-seedance-2.0", "Seedance 2.0（清衍独家）", { "480p": 0.2, "720p": 4 / 15, "1080p": 0.6 }, "720p", QY_REFERENCES, {
+    videoModel("qy-seedance-2.0", "Seedance 2.0", { "480p": 0.2, "720p": 4 / 15, "1080p": 0.6 }, "720p", QY_REFERENCES, {
         tier: "standard",
         maxPromptChars: 2_500,
         minDuration: 5,
@@ -100,7 +100,7 @@ export const PROVIDER_MODELS: ProviderModel[] = [
         allowedDurations: [5, 10, 15],
         recommendedDurations: [5, 10, 15],
         aspectRatios: QY_RATIOS,
-        description: "清衍独家标准通道，支持 480P/720P/1080P、原生声音及图片、视频、音频参考",
+        description: "标准通道，支持 480P/720P/1080P、原生声音及图片、视频、音频参考",
     }),
     { id: "speech-2.8-hd", label: "MiniMax Speech 2.8 HD", provider: "minimax", capability: "audio", visibility: "public", billing: { unit: "million_characters", usd: 100 }, description: "高保真语音合成，支持停顿、情绪和语气标签" },
     { id: "speech-2.8-turbo", label: "MiniMax Speech 2.8 Turbo", provider: "minimax", capability: "audio", visibility: "public", billing: { unit: "million_characters", usd: 60 }, description: "低成本语音合成，支持停顿、情绪和语气标签" },

@@ -89,16 +89,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
     const referenceAudios = selectedInputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
 
     if (!hasToken) {
-        return {
-            prompt,
-            referenceImages: [],
-            referenceVideos: [],
-            referenceAudios: [],
-            textCount: 0,
-            imageCount: 0,
-            videoCount: 0,
-            audioCount: 0,
-        };
+        return buildConnectedGenerationContext(inputs, prompt);
     }
 
     return {
@@ -107,6 +98,27 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
         referenceVideos,
         referenceAudios,
         textCount: counts.text,
+        imageCount: referenceImages.length,
+        videoCount: referenceVideos.length,
+        audioCount: referenceAudios.length,
+    };
+}
+
+function buildConnectedGenerationContext(inputs: NodeGenerationInput[], prompt: string): NodeGenerationContext {
+    const upstreamText = inputs
+        .map((input) => input.text)
+        .filter(Boolean)
+        .join("\n\n");
+    const referenceImages = inputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
+    const referenceVideos = inputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
+    const referenceAudios = inputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
+
+    return {
+        prompt: upstreamText ? `${prompt}\n\n${upstreamText}` : prompt,
+        referenceImages,
+        referenceVideos,
+        referenceAudios,
+        textCount: inputs.filter((input) => input.type === "text").length,
         imageCount: referenceImages.length,
         videoCount: referenceVideos.length,
         audioCount: referenceAudios.length,
@@ -142,7 +154,16 @@ export function buildNodeResponseMessages(context: NodeGenerationContext): AiTex
 
 export async function hydrateNodeGenerationContext(context: NodeGenerationContext) {
     const { imageToDataUrl } = await import("@/services/image-storage");
-    return { ...context, referenceImages: await Promise.all(context.referenceImages.map(async (image) => ({ ...image, dataUrl: await imageToDataUrl(image) }))) };
+    return {
+        ...context,
+        referenceImages: await Promise.all(
+            context.referenceImages.map(async (image) => {
+                const dataUrl = await imageToDataUrl(image);
+                if (!dataUrl) throw new Error(`参考图“${image.name || image.id}”读取失败，请重新上传或移除后再生成`);
+                return { ...image, dataUrl };
+            }),
+        ),
+    };
 }
 
 function readNodeTextInput(node: CanvasNodeData) {
