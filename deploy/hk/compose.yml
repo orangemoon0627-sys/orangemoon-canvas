@@ -201,5 +201,5 @@ networks:
     name: orangemoon-canvas-egress
     driver: bridge
   ingress:
-    name: codex-fleet-ingress
-    external: true
+    name: orangemoon-canvas-ingress
+    driver: bridge
