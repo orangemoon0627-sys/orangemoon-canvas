@@ -159,6 +159,8 @@ services:
   app:
     image: orangemoon/canvas:${IMAGE_TAG:?IMAGE_TAG is required}
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-4320}:3000"
     environment:
       NGINX_CLIENT_MAX_BODY_SIZE: ${NGINX_CLIENT_MAX_BODY_SIZE:-64m}
       CANVAS_AGENT_URL: /canvas-agent
