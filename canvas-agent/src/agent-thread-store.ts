@@ -21,45 +21,45 @@ export type StoredAgentThread = {
     history: StoredAgentHistoryMessage[];
 };
 
-export async function listAgentThreads(cookie: string, projectId: string, search = "") {
+export async function listAgentThreads(cookie: string, workspaceId: string, projectId: string, search = "") {
     const query = new URLSearchParams({ projectId, ...(search ? { search } : {}) });
-    return platformAgentRequest<{ ok: true; activeThreadId: string; threads: Array<Omit<StoredAgentThread, "messages" | "history">> }>(cookie, `/agent/threads?${query}`);
+    return platformAgentRequest<{ ok: true; activeThreadId: string; threads: Array<Omit<StoredAgentThread, "messages" | "history">> }>(cookie, workspaceId, `/agent/threads?${query}`);
 }
 
-export async function getAgentThread(cookie: string, projectId: string, threadId: string) {
+export async function getAgentThread(cookie: string, workspaceId: string, projectId: string, threadId: string) {
     const query = new URLSearchParams({ projectId });
-    const result = await platformAgentRequest<{ ok: true; thread: StoredAgentThread }>(cookie, `/agent/threads/${encodeURIComponent(threadId)}?${query}`);
+    const result = await platformAgentRequest<{ ok: true; thread: StoredAgentThread }>(cookie, workspaceId, `/agent/threads/${encodeURIComponent(threadId)}?${query}`);
     return result.thread;
 }
 
-export async function saveAgentThread(cookie: string, projectId: string, thread: StoredAgentThread) {
-    const result = await platformAgentRequest<{ ok: true; thread: StoredAgentThread }>(cookie, `/agent/threads/${encodeURIComponent(thread.id)}`, {
+export async function saveAgentThread(cookie: string, workspaceId: string, projectId: string, thread: StoredAgentThread) {
+    const result = await platformAgentRequest<{ ok: true; thread: StoredAgentThread }>(cookie, workspaceId, `/agent/threads/${encodeURIComponent(thread.id)}`, {
         method: "PUT",
         body: JSON.stringify({ projectId, preview: thread.preview, name: thread.name || undefined, messages: thread.messages, history: thread.history }),
     });
     return result.thread;
 }
 
-export async function openAgentThread(cookie: string, projectId: string, threadId: string) {
-    const result = await platformAgentRequest<{ ok: true; thread: StoredAgentThread }>(cookie, `/agent/threads/${encodeURIComponent(threadId)}/open`, {
+export async function openAgentThread(cookie: string, workspaceId: string, projectId: string, threadId: string) {
+    const result = await platformAgentRequest<{ ok: true; thread: StoredAgentThread }>(cookie, workspaceId, `/agent/threads/${encodeURIComponent(threadId)}/open`, {
         method: "POST",
         body: JSON.stringify({ projectId }),
     });
     return result.thread;
 }
 
-export async function deleteAgentThread(cookie: string, projectId: string, threadId: string) {
+export async function deleteAgentThread(cookie: string, workspaceId: string, projectId: string, threadId: string) {
     const query = new URLSearchParams({ projectId });
-    await platformAgentRequest<{ ok: true }>(cookie, `/agent/threads/${encodeURIComponent(threadId)}?${query}`, { method: "DELETE" });
+    await platformAgentRequest<{ ok: true }>(cookie, workspaceId, `/agent/threads/${encodeURIComponent(threadId)}?${query}`, { method: "DELETE" });
 }
 
-async function platformAgentRequest<T>(cookie: string, path: string, init: RequestInit = {}) {
+async function platformAgentRequest<T>(cookie: string, workspaceId: string, path: string, init: RequestInit = {}) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
         const response = await fetch(`${platformApiUrl()}${path}`, {
             ...init,
-            headers: { accept: "application/json", cookie, ...(init.body ? { "content-type": "application/json" } : {}), ...init.headers },
+            headers: { accept: "application/json", cookie, ...(workspaceId ? { "x-workspace-id": workspaceId } : {}), ...(init.body ? { "content-type": "application/json" } : {}), ...init.headers },
             signal: controller.signal,
         });
         const body = (await response.json().catch(() => null)) as { message?: string | string[]; error?: string } | null;

@@ -5,9 +5,9 @@ const uploadedKeys = new Set<string>();
 const uploadQueue = new Map<string, Promise<void>>();
 const downloadQueue = new Map<string, Promise<Blob>>();
 
-export function bindAccountMediaOwner(userId: string) {
-    if (ownerId === userId) return;
-    ownerId = userId;
+export function bindAccountMediaOwner(scopeId: string) {
+    if (ownerId === scopeId) return;
+    ownerId = scopeId;
     uploadedKeys.clear();
     uploadQueue.clear();
     downloadQueue.clear();
@@ -76,5 +76,5 @@ export function downloadAccountMedia(storageKey: string) {
 }
 
 function assertOwner(requestedOwner: string) {
-    if (ownerId !== requestedOwner) throw new Error("账户已切换，已取消旧账户的媒体同步");
+    if (ownerId !== requestedOwner) throw new Error("创作空间已切换，已取消旧空间的媒体同步");
 }

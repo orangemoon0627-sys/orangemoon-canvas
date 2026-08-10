@@ -17,6 +17,18 @@ enum UserStatus {
   DISABLED
 }
 
+enum WorkspaceKind {
+  PERSONAL
+  TEAM
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
 enum LedgerTransactionType {
   RECHARGE
   ADMIN_ADJUSTMENT
@@ -60,6 +72,7 @@ enum AssetKind {
   IMAGE
   VIDEO
   AUDIO
+  MODEL
 }
 
 model User {
@@ -79,12 +92,80 @@ model User {
   canvasMedia        CanvasMedia[]
   agentThreads       AgentThread[]
   agentTurns         AgentTurn[]
+  personalWorkspace  Workspace?          @relation("PersonalWorkspace")
+  createdWorkspaces  Workspace[]         @relation("WorkspaceCreator")
+  workspaceMembers   WorkspaceMember[]
+  invitedMembers     WorkspaceMember[]   @relation("WorkspaceMemberInviter")
+  createdInvites     WorkspaceInvite[]   @relation("WorkspaceInviteCreator")
+  acceptedInvites    WorkspaceInvite[]   @relation("WorkspaceInviteAcceptor")
   ledgerTransactions LedgerTransaction[]
   auditLogs          AuditLog[]          @relation("AuditActor")
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
   @@index([role, status])
+}
+
+model Workspace {
+  id                String                  @id @default(cuid())
+  publicId          String                  @unique
+  name              String
+  kind              WorkspaceKind           @default(TEAM)
+  createdById       String
+  createdBy         User                    @relation("WorkspaceCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  personalForUserId String?                 @unique
+  personalForUser   User?                   @relation("PersonalWorkspace", fields: [personalForUserId], references: [id], onDelete: Cascade)
+  members           WorkspaceMember[]
+  invites           WorkspaceInvite[]
+  assets            Asset[]
+  canvasProjects    CanvasProject[]
+  canvasMedia       CanvasMedia[]
+  agentThreads      AgentThread[]
+  agentTurns        AgentTurn[]
+  generationJobs    GenerationJob[]
+  collaborationDocs CollaborationDocument[]
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@index([createdById, createdAt])
+  @@index([kind, createdAt])
+}
+
+model WorkspaceMember {
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole @default(EDITOR)
+  invitedById String?
+  invitedBy   User?         @relation("WorkspaceMemberInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@id([workspaceId, userId])
+  @@index([userId, createdAt])
+  @@index([workspaceId, role])
+}
+
+model WorkspaceInvite {
+  id           String        @id @default(cuid())
+  publicId     String        @unique
+  tokenHash    String        @unique
+  workspaceId  String
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email        String
+  role         WorkspaceRole @default(EDITOR)
+  createdById  String
+  createdBy    User          @relation("WorkspaceInviteCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  acceptedById String?
+  acceptedBy   User?         @relation("WorkspaceInviteAcceptor", fields: [acceptedById], references: [id], onDelete: SetNull)
+  acceptedAt   DateTime?
+  revokedAt    DateTime?
+  expiresAt    DateTime
+  createdAt    DateTime      @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([email, expiresAt])
 }
 
 model Session {
@@ -197,6 +278,8 @@ model GenerationJob {
   publicId             String           @unique
   userId               String
   user                 User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  workspaceId          String
+  workspace            Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   capability           String
   model                String
   status               GenerationStatus @default(RESERVED)
@@ -215,6 +298,7 @@ model GenerationJob {
 
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
+  @@index([workspaceId, createdAt])
   @@index([status, createdAt])
 }
 
@@ -223,6 +307,8 @@ model Asset {
   publicId        String         @unique
   userId          String
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId     String
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   kind            AssetKind
   title           String
   coverUrl        String?
@@ -240,6 +326,8 @@ model Asset {
   @@unique([generationJobId, ordinal])
   @@index([userId, createdAt])
   @@index([userId, kind, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, kind, createdAt])
   @@index([generationJobId])
 }
 
@@ -248,6 +336,8 @@ model CanvasProject {
   publicId        String
   userId          String
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   title           String
   data            Json
   clientCreatedAt DateTime
@@ -256,8 +346,9 @@ model CanvasProject {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  @@unique([userId, publicId])
+  @@unique([workspaceId, publicId])
   @@index([userId, deletedAt, clientUpdatedAt])
+  @@index([workspaceId, deletedAt, clientUpdatedAt])
 }
 
 model CanvasMedia {
@@ -265,14 +356,17 @@ model CanvasMedia {
   storageKey String
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   mimeType   String
   bytes      BigInt
   checksum   String
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  @@unique([userId, storageKey])
+  @@unique([workspaceId, storageKey])
   @@index([userId, updatedAt])
+  @@index([workspaceId, updatedAt])
 }
 
 model AgentThread {
@@ -280,6 +374,8 @@ model AgentThread {
   publicId     String   @unique
   userId       String
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   projectId    String
   preview      String   @default("")
   name         String?
@@ -291,6 +387,8 @@ model AgentThread {
 
   @@index([userId, projectId, updatedAt])
   @@index([userId, projectId, lastOpenedAt])
+  @@index([workspaceId, projectId, updatedAt])
+  @@index([workspaceId, projectId, lastOpenedAt])
 }
 
 model AgentTurn {
@@ -298,6 +396,8 @@ model AgentTurn {
   turnId               String          @unique
   userId               String
   user                 User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  workspaceId          String
+  workspace            Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   projectId            String
   threadId             String
   model                String
@@ -317,6 +417,22 @@ model AgentTurn {
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([userId, projectId, createdAt])
+  @@index([workspaceId, projectId, createdAt])
+}
+
+model CollaborationDocument {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  documentKey String
+  state       Bytes
+  version     Int       @default(1)
+  updatedById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, documentKey])
+  @@index([workspaceId, updatedAt])
 }
 
 model PriceVersion {

@@ -1,20 +1,22 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { AgentTurnStatus, LedgerTransactionType, Prisma, type AgentTurn } from "@prisma/client";
+import { AgentTurnStatus, LedgerTransactionType, Prisma, WorkspaceRole, type AgentTurn } from "@prisma/client";
 
 import { formatMilliCredits } from "../common/money";
 import { PrismaService } from "../prisma/prisma.service";
 import { LedgerService } from "../wallet/ledger.service";
 import type { ReleaseAgentTurnDto, ReserveAgentTurnDto, SettleAgentTurnDto } from "./agent-billing.dto";
 import { AgentPricingService } from "./agent-pricing.service";
+import { WorkspaceService } from "../workspaces/workspace.service";
 
 @Injectable()
 export class AgentBillingService {
-    constructor(private readonly prisma: PrismaService, private readonly ledger: LedgerService, private readonly pricing: AgentPricingService) {}
+    constructor(private readonly prisma: PrismaService, private readonly ledger: LedgerService, private readonly pricing: AgentPricingService, private readonly workspaces: WorkspaceService) {}
 
-    async reserve(userId: string, input: ReserveAgentTurnDto) {
+    async reserve(userId: string, workspacePublicId: string | undefined, input: ReserveAgentTurnDto) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
         return this.ledger.runSerializable(async (tx) => {
             const existing = await tx.agentTurn.findUnique({ where: { turnId: input.turnId } });
-            if (existing) return this.assertOwned(existing, userId);
+            if (existing) return this.assertOwned(existing, userId, workspace.id);
             const reservedMilliCredits = this.pricing.reservationMilliCredits();
             const priceSnapshot = this.pricing.priceSnapshot() as unknown as Prisma.InputJsonValue;
             await this.ledger.reserveInTransaction(tx, {
@@ -26,14 +28,15 @@ export class AgentBillingService {
                 transactionType: LedgerTransactionType.AGENT_RESERVE,
             });
             return tx.agentTurn.create({
-                data: { ...input, userId, reservedMilliCredits, priceSnapshot },
+                data: { ...input, userId, workspaceId: workspace.id, reservedMilliCredits, priceSnapshot },
             });
         });
     }
 
-    async settle(userId: string, turnId: string, input: SettleAgentTurnDto) {
+    async settle(userId: string, workspacePublicId: string | undefined, turnId: string, input: SettleAgentTurnDto) {
+        const workspaceId = await this.turnWorkspaceId(workspacePublicId);
         return this.ledger.runSerializable(async (tx) => {
-            const current = this.assertOwned(await tx.agentTurn.findUnique({ where: { turnId } }), userId);
+            const current = this.assertOwned(await tx.agentTurn.findUnique({ where: { turnId } }), userId, workspaceId);
             if (current.status === AgentTurnStatus.SUCCEEDED) return current;
             if (current.status === AgentTurnStatus.FAILED) throw new ConflictException("Agent 本轮已退款，不能再次结算");
             const quote = this.pricing.quote(input, current.priceSnapshot);
@@ -64,9 +67,10 @@ export class AgentBillingService {
         });
     }
 
-    async release(userId: string, turnId: string, input: ReleaseAgentTurnDto) {
+    async release(userId: string, workspacePublicId: string | undefined, turnId: string, input: ReleaseAgentTurnDto) {
+        const workspaceId = await this.turnWorkspaceId(workspacePublicId);
         return this.ledger.runSerializable(async (tx) => {
-            const current = this.assertOwned(await tx.agentTurn.findUnique({ where: { turnId } }), userId);
+            const current = this.assertOwned(await tx.agentTurn.findUnique({ where: { turnId } }), userId, workspaceId);
             if (current.status === AgentTurnStatus.SUCCEEDED || current.status === AgentTurnStatus.FAILED) return current;
             await this.ledger.releaseInTransaction(tx, {
                 userId,
@@ -91,9 +95,14 @@ export class AgentBillingService {
         return this.pricing.catalog();
     }
 
-    private assertOwned(turn: AgentTurn | null, userId: string) {
-        if (!turn || turn.userId !== userId) throw new NotFoundException("Agent 使用记录不存在");
+    private assertOwned(turn: AgentTurn | null, userId: string, workspaceId?: string) {
+        if (!turn || turn.userId !== userId || (workspaceId && turn.workspaceId !== workspaceId)) throw new NotFoundException("Agent 使用记录不存在");
         return turn;
+    }
+
+    private async turnWorkspaceId(publicId: string | undefined) {
+        if (!publicId) return undefined;
+        return (await this.prisma.workspace.findUnique({ where: { publicId }, select: { id: true } }))?.id || "missing-workspace";
     }
 }
 

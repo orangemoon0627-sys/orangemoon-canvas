@@ -8,7 +8,7 @@ const AgentPanel = lazy(() => import("@/components/agent/agent-panel").then((mod
 
 export default function UserLayout({ children }: { children: ReactNode }) {
     const { pathname } = useLocation();
-    const platformPage = /^\/(account|admin)(?:\/|$)/.test(pathname);
+    const platformPage = /^\/(account|admin|team)(?:\/|$)/.test(pathname);
     const agentPanelMounted = useAgentStore((state) => state.panelMounted);
     return (
         <div className="flex h-dvh overflow-hidden bg-background text-foreground">

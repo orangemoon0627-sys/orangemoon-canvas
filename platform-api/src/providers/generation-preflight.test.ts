@@ -8,6 +8,9 @@ import type { LedgerService } from "../wallet/ledger.service";
 import { GenerationService, providerVideoTaskId, publicVideoGenerationError, rewriteGeneratedImageUrls } from "./generation.service";
 import type { PricingService } from "./pricing.service";
 import type { ProviderUpstreamService } from "./provider-upstream.service";
+import type { WorkspaceService } from "../workspaces/workspace.service";
+
+const workspaces = { resolve: async () => ({ id: "workspace-a" }) } as unknown as WorkspaceService;
 
 test("供应商未配置时在冻结积分和创建任务前拒绝生图", async () => {
     let reservationAttempts = 0;
@@ -23,10 +26,10 @@ test("供应商未配置时在冻结积分和创建任务前拒绝生图", async
             throw new Error("不应进入积分预授权");
         },
     } as unknown as LedgerService;
-    const service = new GenerationService({} as PrismaService, ledger, {} as PricingService, upstream);
+    const service = new GenerationService({} as PrismaService, ledger, {} as PricingService, upstream, workspaces);
 
     await assert.rejects(
-        service.image("user-1", "image-preflight-1", {
+        service.image("user-1", "team-a", "image-preflight-1", {
             model: "gpt-image-2",
             prompt: "测试图片",
             size: "1024x1024",
@@ -53,10 +56,10 @@ test("已移除的 431 模型在配置检查和积分预授权前被拒绝", asy
             throw new Error("不应进入积分预授权");
         },
     } as unknown as LedgerService;
-    const service = new GenerationService({} as PrismaService, ledger, {} as PricingService, upstream);
+    const service = new GenerationService({} as PrismaService, ledger, {} as PricingService, upstream, workspaces);
 
     await assert.rejects(
-        service.createVideo("user-1", "video-preflight-1", {
+        service.createVideo("user-1", "team-a", "video-preflight-1", {
             model: "431-Seedream-2.0",
             prompt: "测试视频",
             duration: 5,

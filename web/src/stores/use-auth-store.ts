@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { fetchCurrentUser, fetchWallet, loginAccount, logoutAccount, registerAccount, type PlatformUser, type PlatformWallet } from "@/services/api/platform";
+import { useWorkspaceStore } from "@/stores/use-workspace-store";
 
 type AuthStatus = "checking" | "authenticated" | "anonymous";
 
@@ -45,6 +46,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
             await logoutAccount();
         } finally {
+            useWorkspaceStore.getState().reset();
             set({ status: "anonymous", user: null });
         }
     },
@@ -60,5 +62,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set((state) => ({ user: state.user ? { ...state.user, wallet } : null }));
     },
     updateWallet: (wallet) => set((state) => ({ user: state.user ? { ...state.user, wallet } : null })),
-    expire: () => set({ status: "anonymous", user: null }),
+    expire: () => {
+        useWorkspaceStore.getState().reset();
+        set({ status: "anonymous", user: null });
+    },
 }));

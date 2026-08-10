@@ -33,7 +33,8 @@ type AssetStore = {
     syncing: boolean;
     syncError: string;
     assets: Asset[];
-    bindOwner: (userId: string) => Promise<void>;
+    workspaceCache: Record<string, Asset[]>;
+    bindOwner: (scopeId: string, legacyOwnerId?: string) => Promise<void>;
     addAsset: (asset: Omit<Asset, "id" | "createdAt" | "updatedAt">) => string;
     updateAsset: (id: string, patch: Partial<Omit<Asset, "id" | "createdAt">>) => void;
     removeAsset: (id: string) => void;
@@ -50,6 +51,7 @@ const assetStorage: PersistStorage<AssetStore> = {
         if (!value) return null;
         const parsed = JSON.parse(value) as StorageValue<AssetStore>;
         parsed.state.assets = await Promise.all((parsed.state.assets || []).map(hydrateAsset));
+        parsed.state.workspaceCache ||= {};
         return parsed;
     },
     setItem: (name, value) => localForageStorage.setItem(name, JSON.stringify(value)),
@@ -64,21 +66,30 @@ export const useAssetStore = create<AssetStore>()(
             syncing: false,
             syncError: "",
             assets: [],
-            bindOwner: async (userId) => {
+            workspaceCache: {},
+            bindOwner: async (scopeId, legacyOwnerId) => {
                 await waitForHydration();
-                bindAccountMediaOwner(userId);
+                bindAccountMediaOwner(scopeId);
                 const previous = get();
-                const legacyAssets = previous.ownerId === null ? previous.assets : [];
-                const sameOwnerAssets = previous.ownerId === userId ? previous.assets : [];
-                set({ ownerId: userId, assets: [...sameOwnerAssets, ...legacyAssets], syncing: true, syncError: "" });
+                const workspaceCache = { ...previous.workspaceCache };
+                if (previous.ownerId) workspaceCache[previous.ownerId] = previous.assets;
+                const legacyAssets = previous.ownerId === null || previous.ownerId === legacyOwnerId ? previous.assets : [];
+                const cachedAssets = previous.ownerId === scopeId ? previous.assets : workspaceCache[scopeId] || legacyAssets;
+                const localAssets = await Promise.all(cachedAssets.map(hydrateAsset));
+                set({ ownerId: scopeId, workspaceCache, assets: localAssets, syncing: true, syncError: "" });
                 try {
                     const remote = await fetchAccountAssets();
                     const remoteAssets = await Promise.all(remote.assets.filter(isSupportedPlatformAsset).map(platformAssetToLocal));
-                    const merged = mergeAssets(remoteAssets, [...sameOwnerAssets, ...legacyAssets]);
+                    if (get().ownerId !== scopeId) return;
+                    const uploads = localAssets.filter((asset) => {
+                        const remoteAsset = remoteAssets.find((item) => item.id === asset.id);
+                        return !remoteAsset || Date.parse(asset.updatedAt) > Date.parse(remoteAsset.updatedAt);
+                    });
+                    const merged = mergeAssets(remoteAssets, localAssets);
                     set({ assets: merged, syncing: false });
-                    if (legacyAssets.length) await Promise.all(legacyAssets.map((asset) => syncAsset(asset)));
+                    uploads.forEach((asset) => queueSync(scopeId, asset.id, () => syncAsset(asset)));
                 } catch (error) {
-                    set({ syncing: false, syncError: error instanceof Error ? error.message : "资产同步失败" });
+                    if (get().ownerId === scopeId) set({ syncing: false, syncError: error instanceof Error ? error.message : "资产同步失败" });
                 }
             },
             addAsset: (asset) => {
@@ -86,7 +97,8 @@ export const useAssetStore = create<AssetStore>()(
                 const id = nanoid();
                 const created = { ...asset, id, createdAt: now, updatedAt: now } as Asset;
                 set((state) => ({ assets: [created, ...state.assets] }));
-                if (get().ownerId) queueSync(id, () => syncAsset(created));
+                const scopeId = get().ownerId;
+                if (scopeId) queueSync(scopeId, id, () => syncAsset(created));
                 return id;
             },
             updateAsset: (id, patch) => {
@@ -98,7 +110,8 @@ export const useAssetStore = create<AssetStore>()(
                         return updated;
                     }),
                 }));
-                if (updated && get().ownerId) queueSync(id, () => syncAsset(updated!));
+                const scopeId = get().ownerId;
+                if (updated && scopeId) queueSync(scopeId, id, () => syncAsset(updated!));
             },
             removeAsset: (id) => {
                 set((state) => {
@@ -106,11 +119,13 @@ export const useAssetStore = create<AssetStore>()(
                     get().cleanupImages({ assets });
                     return { assets };
                 });
-                if (get().ownerId) queueSync(id, async () => { await deleteAccountAsset(id); });
+                const scopeId = get().ownerId;
+                if (scopeId) queueSync(scopeId, id, async () => { await deleteAccountAsset(id); });
             },
             replaceAssets: (assets) => {
                 set({ assets });
-                if (get().ownerId) assets.forEach((asset) => queueSync(asset.id, () => syncAsset(asset)));
+                const scopeId = get().ownerId;
+                if (scopeId) assets.forEach((asset) => queueSync(scopeId, asset.id, () => syncAsset(asset)));
             },
             cleanupImages: (extra) => {
                 window.setTimeout(async () => {
@@ -123,7 +138,7 @@ export const useAssetStore = create<AssetStore>()(
         {
             name: ASSET_STORE_KEY,
             storage: assetStorage,
-            partialize: (state) => ({ ownerId: state.ownerId, assets: state.assets }) as StorageValue<AssetStore>["state"],
+            partialize: (state) => ({ ownerId: state.ownerId, assets: state.assets, workspaceCache: state.ownerId ? { ...state.workspaceCache, [state.ownerId]: state.assets } : state.workspaceCache }) as StorageValue<AssetStore>["state"],
             onRehydrateStorage: () => () => {
                 useAssetStore.setState({ hydrated: true });
             },
@@ -142,14 +157,18 @@ async function waitForHydration() {
     });
 }
 
-function queueSync(id: string, task: () => Promise<void>) {
-    const previous = syncQueue.get(id) || Promise.resolve();
-    const next = previous.catch(() => undefined).then(task).catch((error) => {
-        useAssetStore.setState({ syncError: error instanceof Error ? error.message : "资产同步失败" });
+function queueSync(scopeId: string, id: string, task: () => Promise<void>) {
+    const key = `${scopeId}:${id}`;
+    const previous = syncQueue.get(key) || Promise.resolve();
+    const next = previous.catch(() => undefined).then(async () => {
+        if (useAssetStore.getState().ownerId !== scopeId) return;
+        await task();
+    }).catch((error) => {
+        if (useAssetStore.getState().ownerId === scopeId) useAssetStore.setState({ syncError: error instanceof Error ? error.message : "资产同步失败" });
     }).finally(() => {
-        if (syncQueue.get(id) === next) syncQueue.delete(id);
+        if (syncQueue.get(key) === next) syncQueue.delete(key);
     });
-    syncQueue.set(id, next);
+    syncQueue.set(key, next);
 }
 
 async function syncAsset(asset: Asset) {

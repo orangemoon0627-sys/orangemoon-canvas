@@ -26,6 +26,7 @@ import {
 import { useAuthStore } from "@/stores/use-auth-store";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 import { getOrangeMoonModelLabel, removeOrangeMoonInternalModelPrefix } from "@/lib/orange-moon-provider";
+import { useWorkspaceStore } from "@/stores/use-workspace-store";
 
 const WALLET_KEY = ["platform", "wallet"] as const;
 const RECHARGES_KEY = ["platform", "recharges"] as const;
@@ -41,6 +42,7 @@ export default function AccountPage() {
     const updateWallet = useAuthStore((state) => state.updateWallet);
     const assets = useAssetStore((state) => state.assets);
     const bindAssets = useAssetStore((state) => state.bindOwner);
+    const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
     const [submitting, setSubmitting] = useState(false);
     const [payOrder, setPayOrder] = useState<RechargeOrder | null>(null);
     const [form] = Form.useForm<{ amountCredits: string; provider: PaymentProvider; payerNote?: string }>();
@@ -66,7 +68,7 @@ export default function AccountPage() {
     const refresh = async () => {
         const result = await walletQuery.refetch();
         if (result.data?.wallet) updateWallet(result.data.wallet);
-        await Promise.all([rechargeQuery.refetch(), ledgerQuery.refetch(), jobsQuery.refetch(), agentTurnsQuery.refetch(), bindAssets(user.id)]);
+        await Promise.all([rechargeQuery.refetch(), ledgerQuery.refetch(), jobsQuery.refetch(), agentTurnsQuery.refetch(), bindAssets(`${user.id}:${activeWorkspaceId}`)]);
     };
 
     const submitRecharge = async (values: { amountCredits: string; provider: PaymentProvider; payerNote?: string }) => {

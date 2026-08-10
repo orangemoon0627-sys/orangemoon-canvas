@@ -16,6 +16,7 @@ export enum CanvasNodeType {
     Video = "video",
     Audio = "audio",
     Group = "group",
+    Director = "director",
 }
 
 // 节点类型放开为字符串,内置类型用 CanvasNodeType,插件类型为 "<pluginId>:<name>"
@@ -70,6 +71,7 @@ export type CanvasNodeMetadata = {
     durationMs?: number;
     groupId?: string;
     interactive?: boolean; // 插件节点「交互 ⇄ 移动」开关状态(见 CanvasNodeDefinition.interactionToggle)
+    director?: DirectorScene;
 };
 
 export type CanvasNodeData = {
@@ -149,3 +151,4 @@ export type ContextMenuState =
           y: number;
           connectionId: string;
       };
+import type { DirectorScene } from "@/types/director";

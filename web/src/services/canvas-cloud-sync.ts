@@ -1,6 +1,6 @@
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasNodeData } from "@/types/canvas";
 import type { CanvasProject, DeletedCanvasProject } from "@/stores/canvas/use-canvas-store";
-import { deleteCanvasProject, fetchCanvasProjects, type PlatformCanvasProject, upsertCanvasProject } from "@/services/api/platform";
+import { deleteCanvasProject, fetchCanvasProject, fetchCanvasProjects, type PlatformCanvasProject, upsertCanvasProject } from "@/services/api/platform";
 import { ensureAccountMediaUploaded } from "@/services/account-media";
 import { collectMediaStorageKeys, getMediaBlob, uploadMediaFile } from "@/services/file-storage";
 import { getImageBlob, uploadImage } from "@/services/image-storage";
@@ -8,6 +8,13 @@ import { getImageBlob, uploadImage } from "@/services/image-storage";
 export async function fetchAndMergeCanvasProjects(localProjects: CanvasProject[], localDeletedProjects: DeletedCanvasProject[]) {
     const remote = await fetchCanvasProjects();
     return mergeCanvasProjects(remote.projects.map(platformCanvasProjectToLocal), remote.deletedProjects.map(platformCanvasProjectToDeleted), localProjects, localDeletedProjects);
+}
+
+export async function fetchCanvasProjectFromCloud(projectId: string) {
+    const { project } = await fetchCanvasProject(projectId);
+    return project.deletedAt
+        ? { project: null, deletedProject: platformCanvasProjectToDeleted(project) }
+        : { project: await normalizeLegacyProjectMedia(platformCanvasProjectToLocal(project)), deletedProject: null };
 }
 
 export async function uploadCanvasProject(project: CanvasProject) {

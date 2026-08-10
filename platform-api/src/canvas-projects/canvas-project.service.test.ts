@@ -3,16 +3,27 @@ import test from "node:test";
 import { BadRequestException } from "@nestjs/common";
 
 import type { PrismaService } from "../prisma/prisma.service";
+import type { WorkspaceService } from "../workspaces/workspace.service";
 import { CanvasProjectService } from "./canvas-project.service";
 
 const now = "2026-07-31T03:00:00.000Z";
 const input = { title: "封神斗法", createdAt: now, updatedAt: now, data: { nodes: [], connections: [] } };
+const workspaces = { resolve: async () => ({ id: "workspace-a" }) } as unknown as WorkspaceService;
 
-test("画布项目列表始终按当前账户隔离", async () => {
+test("画布项目列表始终按当前空间隔离", async () => {
     let capturedWhere: unknown;
     const prisma = { canvasProject: { findMany: async ({ where }: { where: unknown }) => { capturedWhere = where; return []; } } } as unknown as PrismaService;
-    await new CanvasProjectService(prisma).list("user-a");
-    assert.deepEqual(capturedWhere, { userId: "user-a" });
+    await new CanvasProjectService(prisma, workspaces).list("user-a", "team-a");
+    assert.deepEqual(capturedWhere, { workspaceId: "workspace-a" });
+});
+
+test("团队轮询单个画布时使用空间级复合编号", async () => {
+    let capturedWhere: unknown;
+    const project = { id: "db-project" };
+    const prisma = { canvasProject: { findUnique: async ({ where }: { where: unknown }) => { capturedWhere = where; return project; } } } as unknown as PrismaService;
+    const result = await new CanvasProjectService(prisma, workspaces).get("user-a", "team-a", "canvas_12345678");
+    assert.deepEqual(capturedWhere, { workspaceId_publicId: { workspaceId: "workspace-a", publicId: "canvas_12345678" } });
+    assert.equal(result, project);
 });
 
 test("旧标签页不能覆盖更新的云端画布", async () => {
@@ -25,7 +36,7 @@ test("旧标签页不能覆盖更新的云端画布", async () => {
             create: async () => { wrote = true; return existing; },
         },
     } as unknown as PrismaService;
-    const result = await new CanvasProjectService(prisma).upsert("user-a", "canvas_12345678", input);
+    const result = await new CanvasProjectService(prisma, workspaces).upsert("user-a", "team-a", "canvas_12345678", input);
     assert.equal(result, existing);
     assert.equal(wrote, false);
 });
@@ -33,12 +44,12 @@ test("旧标签页不能覆盖更新的云端画布", async () => {
 test("画布 JSON 拒绝内嵌超大媒体内容", async () => {
     const prisma = { canvasProject: { findUnique: async () => null } } as unknown as PrismaService;
     await assert.rejects(
-        () => new CanvasProjectService(prisma).upsert("user-a", "canvas_12345678", { ...input, data: { content: "x".repeat(8 * 1024 * 1024 + 1) } }),
+        () => new CanvasProjectService(prisma, workspaces).upsert("user-a", "team-a", "canvas_12345678", { ...input, data: { content: "x".repeat(8 * 1024 * 1024 + 1) } }),
         BadRequestException,
     );
 });
 
-test("删除不存在的画布也会创建账户级墓碑", async () => {
+test("删除不存在的画布也会创建空间级墓碑", async () => {
     let created: Record<string, unknown> | undefined;
     const prisma = {
         canvasProject: {
@@ -47,8 +58,9 @@ test("删除不存在的画布也会创建账户级墓碑", async () => {
             create: async ({ data }: { data: Record<string, unknown> }) => { created = data; return data; },
         },
     } as unknown as PrismaService;
-    await new CanvasProjectService(prisma).remove("user-a", "canvas_12345678", { deletedAt: now });
+    await new CanvasProjectService(prisma, workspaces).remove("user-a", "team-a", "canvas_12345678", { deletedAt: now });
     assert.equal(created?.userId, "user-a");
+    assert.equal(created?.workspaceId, "workspace-a");
     assert.equal(created?.publicId, "canvas_12345678");
     assert.ok(created?.deletedAt instanceof Date);
 });
@@ -62,8 +74,8 @@ test("显式删除在时间戳相等时优先于当前画布快照", async () =>
             findUnique: async () => ({ ...existing, deletedAt: new Date(now) }),
         },
     } as unknown as PrismaService;
-    const result = await new CanvasProjectService(prisma).remove("user-a", "canvas_12345678", { deletedAt: now });
-    assert.deepEqual(updateWhere, { userId: "user-a", publicId: "canvas_12345678", clientUpdatedAt: { lte: new Date(now) } });
+    const result = await new CanvasProjectService(prisma, workspaces).remove("user-a", "team-a", "canvas_12345678", { deletedAt: now });
+    assert.deepEqual(updateWhere, { workspaceId: "workspace-a", publicId: "canvas_12345678", clientUpdatedAt: { lte: new Date(now) } });
     assert.ok(result.deletedAt instanceof Date);
 });
 
@@ -76,7 +88,7 @@ test("画布更新使用数据库时间戳条件防止并发旧写入", async ()
             findUnique: async () => stored,
         },
     } as unknown as PrismaService;
-    const result = await new CanvasProjectService(prisma).upsert("user-a", "canvas_12345678", input);
-    assert.deepEqual(updateWhere, { userId: "user-a", publicId: "canvas_12345678", clientUpdatedAt: { lt: new Date(now) } });
+    const result = await new CanvasProjectService(prisma, workspaces).upsert("user-a", "team-a", "canvas_12345678", input);
+    assert.deepEqual(updateWhere, { workspaceId: "workspace-a", publicId: "canvas_12345678", clientUpdatedAt: { lt: new Date(now) } });
     assert.equal(result, stored);
 });

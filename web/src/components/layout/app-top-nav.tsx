@@ -9,6 +9,7 @@ import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { useAgentStore } from "@/stores/use-agent-store";
+import { WorkspaceSwitcher } from "@/components/layout/workspace-switcher";
 
 export function AppTopNav() {
     const { pathname } = useLocation();
@@ -21,7 +22,7 @@ export function AppTopNav() {
     const togglePanel = useAgentStore((state) => state.togglePanel);
     const panelOpen = useAgentStore((state) => state.panelOpen);
     const hideHeader = /^\/canvas\/[^/]+/.test(pathname);
-    const platformPage = /^\/(account|admin)(?:\/|$)/.test(pathname);
+    const platformPage = /^\/(account|admin|team)(?:\/|$)/.test(pathname);
     const slug = pathname.split("/").filter(Boolean)[0];
     const activeToolSlug = navigationTools.some((tool) => tool.slug === slug) ? (slug as NavigationToolSlug) : undefined;
 
@@ -47,6 +48,7 @@ export function AppTopNav() {
                                 />
                                 <span className="text-base font-medium">橙月画布</span>
                             </Link>
+                            <WorkspaceSwitcher />
 
                             <button
                                 type="button"

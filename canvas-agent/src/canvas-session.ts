@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { ServerResponse } from "node:http";
 
 import { getCreativeSkill, listCreativeSkills, type CreativeSkillId } from "./creative-skills.js";
+import { buildSeedanceDirectorPrompt, mergeDirectorScene, normalizeDirectorScene } from "./director-scene.js";
 import { type ToolName } from "./schemas.js";
 import { compactCanvasState, editableNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
 import type { AgentAttachment, CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
@@ -233,6 +234,40 @@ export class CanvasSession {
             input = { ops: generationFlowOps(input as Record<string, unknown>, this.canvasState) };
             tool = "canvas_apply_ops";
         }
+        if (tool === "canvas_create_director_scene") {
+            const data = input as { scene: Record<string, unknown>; title?: string; x?: number; y?: number; width?: number; height?: number };
+            const scene = normalizeDirectorScene(data.scene);
+            const nodeId = `director-${crypto.randomUUID()}`;
+            input = {
+                ops: [
+                    { type: "add_node", id: nodeId, nodeType: "director", title: data.title || scene.name || "导演台", position: { x: data.x ?? nextCanvasX(this.canvasState), y: data.y ?? 0 }, width: data.width, height: data.height, metadata: { status: "idle", director: scene } },
+                    { type: "select_nodes", ids: [nodeId] },
+                ],
+            };
+            tool = "canvas_apply_ops";
+        }
+        if (tool === "canvas_update_director_scene") {
+            const data = input as { nodeId: string; scene: Record<string, unknown>; replace?: boolean; title?: string };
+            const node = requireDirectorNode(this.canvasState, data.nodeId);
+            const scene = mergeDirectorScene(node.metadata?.director, data.scene, data.replace);
+            input = { ops: [{ type: "update_node", id: node.id, ...(data.title === undefined ? {} : { patch: { title: data.title } }), metadata: { director: scene } }, { type: "select_nodes", ids: [node.id] }] };
+            tool = "canvas_apply_ops";
+        }
+        if (tool === "canvas_export_director_prompt") {
+            const data = input as { nodeId: string; title?: string; x?: number; y?: number; width?: number; height?: number };
+            const node = requireDirectorNode(this.canvasState, data.nodeId);
+            const scene = normalizeDirectorScene(node.metadata?.director);
+            const textId = `text-${crypto.randomUUID()}`;
+            const outputIndex = (this.canvasState?.connections || []).filter((connection) => connection.fromNodeId === node.id).length;
+            input = {
+                ops: [
+                    textNodeOp({ id: textId, text: buildSeedanceDirectorPrompt(scene), title: data.title || `${scene.name} · Seedance 运镜`, width: data.width ?? 420, height: data.height ?? 360 }, data.x ?? node.position.x + node.width + 80, data.y ?? node.position.y + outputIndex * 380),
+                    { type: "connect_nodes", fromNodeId: node.id, toNodeId: textId },
+                    { type: "select_nodes", ids: [textId] },
+                ],
+            };
+            tool = "canvas_apply_ops";
+        }
         if (tool === "canvas_generate_text" || tool === "canvas_generate_image" || tool === "canvas_generate_video" || tool === "canvas_generate_audio") {
             input = { ops: generationFlowOps({ ...(input as Record<string, unknown>), mode: tool.replace("canvas_generate_", ""), autoRun: true }, this.canvasState) };
             tool = "canvas_apply_ops";
@@ -430,6 +465,12 @@ function generationTitle(mode: "text" | "image" | "video" | "audio") {
 
 function findNode(state: CanvasSnapshot | null, id: string): CanvasNode | undefined {
     return (state?.nodes || []).find((node) => node.id === id);
+}
+
+function requireDirectorNode(state: CanvasSnapshot | null, id: string) {
+    const node = findNode(state, id);
+    if (!node || node.type !== "director") throw new Error(`找不到导演台节点：${id}`);
+    return node;
 }
 
 function cleanRecord(value: Record<string, unknown>) {

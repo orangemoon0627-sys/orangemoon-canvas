@@ -15,6 +15,8 @@ const HomePage = lazy(() => import("@/pages/home"));
 const ImagePage = lazy(() => import("@/pages/image"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const PromptsPage = lazy(() => import("@/pages/prompts"));
+const TeamPage = lazy(() => import("@/pages/team"));
+const TeamInvitePage = lazy(() => import("@/pages/team/invite"));
 const VideoPage = lazy(() => import("@/pages/video"));
 
 function LazyPage({ children }: { children: ReactNode }) {
@@ -49,6 +51,8 @@ export const router = createBrowserRouter([
             { path: "/video", element: lazyPage(<VideoPage />) },
             { path: "/assets", element: lazyPage(<AssetsPage />) },
             { path: "/prompts", element: lazyPage(<PromptsPage />) },
+            { path: "/team", element: lazyPage(<TeamPage />) },
+            { path: "/team/invite/:token", element: lazyPage(<TeamInvitePage />) },
             { path: "/canvas", element: lazyPage(<CanvasPage />) },
             { path: "/canvas/:id", element: lazyPage(<CanvasProjectPage />) },
             { path: "/config", element: lazyPage(<ConfigPage />) },

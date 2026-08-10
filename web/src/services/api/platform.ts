@@ -1,3 +1,5 @@
+import { getActiveWorkspaceId } from "@/services/workspace-session";
+
 export type PlatformWallet = {
     availableMilliCredits: string;
     availableCredits: string;
@@ -106,7 +108,39 @@ export type AgentPricing = {
     rounding: string;
 };
 
-export type PlatformAssetKind = "text" | "image" | "video" | "audio";
+export type PlatformAssetKind = "text" | "image" | "video" | "audio" | "model";
+
+export type WorkspaceRole = "OWNER" | "ADMIN" | "EDITOR" | "VIEWER";
+export type PlatformWorkspace = {
+    id: string;
+    name: string;
+    kind: "PERSONAL" | "TEAM";
+    role: WorkspaceRole;
+    memberCount: number;
+    projectCount: number;
+    assetCount: number;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type WorkspaceMember = {
+    userId: string;
+    email: string;
+    displayName: string;
+    status: "ACTIVE" | "DISABLED";
+    role: WorkspaceRole;
+    joinedAt: string;
+};
+
+export type WorkspaceInvite = {
+    id: string;
+    email: string;
+    role: WorkspaceRole;
+    acceptedAt: string | null;
+    revokedAt: string | null;
+    expiresAt: string;
+    createdAt: string;
+};
 
 export type PlatformAsset = {
     id: string;
@@ -214,10 +248,11 @@ export class PlatformApiError extends Error {
 
 export async function platformRequest<T>(path: string, init: RequestInit = {}) {
     const formDataBody = typeof FormData !== "undefined" && init.body instanceof FormData;
+    const workspaceId = getActiveWorkspaceId();
     const response = await fetch(`/platform-api${path.startsWith("/") ? path : `/${path}`}`, {
         ...init,
         credentials: "include",
-        headers: { Accept: "application/json", ...(init.body && !formDataBody ? { "Content-Type": "application/json" } : {}), ...init.headers },
+        headers: { Accept: "application/json", ...(workspaceId ? { "X-Workspace-Id": workspaceId } : {}), ...(init.body && !formDataBody ? { "Content-Type": "application/json" } : {}), ...init.headers },
     });
     const contentType = response.headers.get("content-type") || "";
     const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text().catch(() => "");
@@ -285,6 +320,54 @@ export function fetchProviderCatalog() {
     return platformRequest<ProviderCatalog>("/providers/catalog");
 }
 
+export function fetchWorkspaces() {
+    return platformRequest<{ ok: true; workspaces: PlatformWorkspace[] }>("/workspaces");
+}
+
+export function createWorkspace(name: string) {
+    return platformRequest<{ ok: true; workspace: PlatformWorkspace }>("/workspaces", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export function renameWorkspace(workspaceId: string, name: string) {
+    return platformRequest<{ ok: true; workspace: Pick<PlatformWorkspace, "id" | "name" | "kind" | "updatedAt"> }>(`/workspaces/${encodeURIComponent(workspaceId)}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+export function fetchWorkspaceMembers(workspaceId: string) {
+    return platformRequest<{ ok: true; role: WorkspaceRole; members: WorkspaceMember[] }>(`/workspaces/${encodeURIComponent(workspaceId)}/members`);
+}
+
+export function addWorkspaceMember(workspaceId: string, input: { email: string; role: Exclude<WorkspaceRole, "OWNER"> }) {
+    return platformRequest<{ ok: true; member: WorkspaceMember }>(`/workspaces/${encodeURIComponent(workspaceId)}/members`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateWorkspaceMember(workspaceId: string, userId: string, role: Exclude<WorkspaceRole, "OWNER">) {
+    return platformRequest<{ ok: true; member: WorkspaceMember }>(`/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ role }) });
+}
+
+export function removeWorkspaceMember(workspaceId: string, userId: string) {
+    return platformRequest<{ ok: true }>(`/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+export function fetchWorkspaceInvites(workspaceId: string) {
+    return platformRequest<{ ok: true; invites: WorkspaceInvite[] }>(`/workspaces/${encodeURIComponent(workspaceId)}/invites`);
+}
+
+export function createWorkspaceInvite(workspaceId: string, input: { email: string; role: Exclude<WorkspaceRole, "OWNER"> }) {
+    return platformRequest<{ ok: true; invite: { id: string; email: string; role: WorkspaceRole; expiresAt: string; url: string } }>(`/workspaces/${encodeURIComponent(workspaceId)}/invites`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function revokeWorkspaceInvite(workspaceId: string, inviteId: string) {
+    return platformRequest<{ ok: true }>(`/workspaces/${encodeURIComponent(workspaceId)}/invites/${encodeURIComponent(inviteId)}`, { method: "DELETE" });
+}
+
+export function previewWorkspaceInvite(token: string) {
+    return platformRequest<{ ok: true; invite: { workspace: { id: string; name: string }; role: WorkspaceRole; email: string; invitedBy: string; expiresAt: string } }>(`/workspaces/invites/${encodeURIComponent(token)}`);
+}
+
+export function acceptWorkspaceInvite(token: string) {
+    return platformRequest<{ ok: true; workspace: { id: string; name: string } }>(`/workspaces/invites/${encodeURIComponent(token)}/accept`, { method: "POST" });
+}
+
 export function quoteProviderBundle(items: Array<{ id: string; model: string; quantity: number; resolution?: string }>) {
     return platformRequest<ProviderBundleQuote>("/providers/quote", { method: "POST", body: JSON.stringify({ items }) });
 }
@@ -303,6 +386,10 @@ export function deleteAccountAsset(publicId: string) {
 
 export function fetchCanvasProjects() {
     return platformRequest<{ ok: true; projects: PlatformCanvasProject[]; deletedProjects: PlatformCanvasProject[] }>("/canvas-projects");
+}
+
+export function fetchCanvasProject(publicId: string) {
+    return platformRequest<{ ok: true; project: PlatformCanvasProject }>(`/canvas-projects/${encodeURIComponent(publicId)}`);
 }
 
 export function upsertCanvasProject(publicId: string, input: { title: string; createdAt: string; updatedAt: string; data: Record<string, unknown> }) {
@@ -324,7 +411,8 @@ export function uploadCanvasMedia(storageKey: string, blob: Blob) {
 }
 
 export async function downloadCanvasMedia(storageKey: string) {
-    const response = await fetch(`/platform-api/canvas-media/${encodeURIComponent(storageKey)}`, { credentials: "include", headers: { Accept: "*/*" } });
+    const workspaceId = getActiveWorkspaceId();
+    const response = await fetch(`/platform-api/canvas-media/${encodeURIComponent(storageKey)}`, { credentials: "include", headers: { Accept: "*/*", ...(workspaceId ? { "X-Workspace-Id": workspaceId } : {}) } });
     if (!response.ok) {
         const contentType = response.headers.get("content-type") || "";
         const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text().catch(() => "");

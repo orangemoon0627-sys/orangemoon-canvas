@@ -11,6 +11,7 @@ type PlatformIdentity = { id: string; email: string; displayName: string; role: 
 type AgentMessage = StoredAgentMessage;
 type CloudThread = {
     id: string;
+    workspaceId: string;
     projectId: string;
     preview: string;
     name?: string;
@@ -21,6 +22,7 @@ type CloudThread = {
 };
 type UserRuntime = {
     identity: PlatformIdentity;
+    workspaceId: string;
     authCookie: string;
     session: CanvasSession;
     threads: Map<string, CloudThread>;
@@ -83,7 +85,7 @@ export function startCloudHttpServer() {
         const runtime = runtimeFor(req);
         const projectId = requestProjectId(req);
         const search = String(req.query.searchTerm || "").trim().toLowerCase();
-        const result = await listAgentThreads(runtime.authCookie, projectId, search);
+        const result = await listAgentThreads(runtime.authCookie, runtime.workspaceId, projectId, search);
         runtime.activeThreadIds.set(projectId, result.activeThreadId || "");
         res.json({ ok: true, workspace: workspace(runtime, projectId), data: result.threads, nextCursor: null, backwardsCursor: null });
     }));
@@ -108,8 +110,8 @@ export function startCloudHttpServer() {
         if (runtime.busy) return void res.status(409).json({ ok: false, error: "创作引擎正在运行，请等待当前任务完成" });
         const projectId = requestProjectId(req);
         const threadId = routeParam(req.params.threadId);
-        const persisted = await openAgentThread(runtime.authCookie, projectId, threadId);
-        const thread = fromStoredThread(projectId, persisted);
+        const persisted = await openAgentThread(runtime.authCookie, runtime.workspaceId, projectId, threadId);
+        const thread = fromStoredThread(runtime.workspaceId, projectId, persisted);
         runtime.threads.set(thread.id, thread);
         runtime.activeThreadIds.set(projectId, thread.id);
         res.json({ ok: true, workspace: workspace(runtime, projectId), thread: threadSummary(thread), messages: thread.messages });
@@ -119,7 +121,7 @@ export function startCloudHttpServer() {
         if (runtime.busy) return void res.status(409).json({ ok: false, error: "创作引擎正在运行，请等待当前任务完成" });
         const projectId = requestProjectId(req);
         const threadId = routeParam(req.params.threadId);
-        await deleteAgentThread(runtime.authCookie, projectId, threadId);
+        await deleteAgentThread(runtime.authCookie, runtime.workspaceId, projectId, threadId);
         runtime.threads.delete(threadId);
         if (runtime.activeThreadIds.get(projectId) === threadId) runtime.activeThreadIds.set(projectId, "");
         res.json({ ok: true, workspace: workspace(runtime, projectId) });
@@ -153,7 +155,7 @@ export function startCloudHttpServer() {
             newThread = !thread;
             if (!thread) thread = createThread(runtime, projectId, String(req.body?.messageText || prompt));
             runtime.session.bindClient(clientId, projectId);
-            const reservation = await reserveAgentTurn(runtime.authCookie, { turnId, projectId, threadId: thread.id, model: CLOUD_AGENT_MODEL });
+            const reservation = await reserveAgentTurn(runtime.authCookie, runtime.workspaceId, { turnId, projectId, threadId: thread.id, model: CLOUD_AGENT_MODEL });
             reserved = true;
             runtime.activeThreadIds.set(projectId, thread.id);
             const attachmentRefs = runtime.session.setTurnAttachments(clientId, attachments);
@@ -175,7 +177,7 @@ export function startCloudHttpServer() {
             void executeTurn(runtime, thread, promptWithAttachments(prompt, attachmentRefs), attachments, String(req.body?.creativeMode || "vibe") === "direct" ? "direct" : "vibe", turnId, clientId, projectId);
             res.json({ ok: true, threadId: thread.id, turnId, model: CLOUD_AGENT_MODEL, reservedCredits: reservation.reservedCredits });
         } catch (error) {
-            if (reserved) await releaseAgentTurn(runtime.authCookie, turnId, errorMessage(error)).catch(() => undefined);
+            if (reserved) await releaseAgentTurn(runtime.authCookie, runtime.workspaceId, turnId, errorMessage(error)).catch(() => undefined);
             runtime.session.clearTurnAttachments(clientId);
             runtime.session.releaseClient(clientId);
             if (thread) {
@@ -226,7 +228,7 @@ async function executeTurn(runtime: UserRuntime, thread: CloudThread, prompt: st
                 runtime.session.emitThread("agent_event", thread.id, { agent: "terra", type: "item.completed", thread_id: thread.id, turn_id: turnId, item: { id: call.callId, type: "mcp_tool_call", server: "infinite-canvas", tool: call.name, status: error ? "failed" : "completed", result: value, ...(error ? { error: { message: error } } : {}) } });
             },
         });
-        const settlement = await settleAgentTurn(runtime.authCookie, turnId, result.usage);
+        const settlement = await settleAgentTurn(runtime.authCookie, runtime.workspaceId, turnId, result.usage);
         const assistantId = `assistant-${crypto.randomUUID()}`;
         const assistantMessage: AgentMessage = { id: assistantId, role: "assistant", title: "Terra", text: result.text, meta: usageLabel(result.usage, settlement.chargedCredits) };
         appendMessage(thread, assistantMessage);
@@ -239,7 +241,7 @@ async function executeTurn(runtime: UserRuntime, thread: CloudThread, prompt: st
         const message = errorMessage(error);
         let releaseError = "";
         try {
-            await releaseAgentTurn(runtime.authCookie, turnId, message);
+            await releaseAgentTurn(runtime.authCookie, runtime.workspaceId, turnId, message);
         } catch (releaseFailure) {
             releaseError = errorMessage(releaseFailure);
         }
@@ -290,10 +292,12 @@ function runtimeFor(req: Request) {
     const identity = identities.get(req);
     if (!identity) throw new Error("账户身份缺失");
     const authCookie = String(req.headers.cookie || "");
-    let runtime = runtimes.get(identity.id);
+    const workspaceId = requestWorkspaceId(req);
+    const runtimeId = `${identity.id}\0${workspaceId || "personal"}`;
+    let runtime = runtimes.get(runtimeId);
     if (!runtime) {
-        runtime = { identity, authCookie, session: new CanvasSession(), threads: new Map(), activeThreadIds: new Map(), busy: false, abortController: null, lastSeenAt: Date.now() };
-        runtimes.set(identity.id, runtime);
+        runtime = { identity, workspaceId, authCookie, session: new CanvasSession(), threads: new Map(), activeThreadIds: new Map(), busy: false, abortController: null, lastSeenAt: Date.now() };
+        runtimes.set(runtimeId, runtime);
     }
     runtime.identity = identity;
     runtime.authCookie = authCookie;
@@ -303,7 +307,7 @@ function runtimeFor(req: Request) {
 
 function createThread(runtime: UserRuntime, projectId: string, preview = "") {
     const now = epochSeconds();
-    const thread: CloudThread = { id: crypto.randomUUID(), projectId, preview: preview.trim().slice(0, 120), createdAt: now, updatedAt: now, messages: [], history: [] };
+    const thread: CloudThread = { id: crypto.randomUUID(), workspaceId: runtime.workspaceId, projectId, preview: preview.trim().slice(0, 120), createdAt: now, updatedAt: now, messages: [], history: [] };
     runtime.threads.set(thread.id, thread);
     runtime.activeThreadIds.set(projectId, thread.id);
     return thread;
@@ -314,23 +318,24 @@ function threadSummary(thread: CloudThread) {
 }
 
 function workspace(runtime: UserRuntime, projectId: string) {
-    return { workspacePath: "橙月云端工作区", activeThreadId: runtime.activeThreadIds.get(projectId) || undefined };
+    return { workspacePath: "橙月云端工作区", workspaceId: runtime.workspaceId || undefined, activeThreadId: runtime.activeThreadIds.get(projectId) || undefined };
 }
 
 async function loadThread(runtime: UserRuntime, projectId: string, threadId: string) {
     const cached = runtime.threads.get(threadId);
     if (cached?.projectId === projectId) return cached;
-    const thread = fromStoredThread(projectId, await getAgentThread(runtime.authCookie, projectId, threadId));
+    const thread = fromStoredThread(runtime.workspaceId, projectId, await getAgentThread(runtime.authCookie, runtime.workspaceId, projectId, threadId));
     runtime.threads.set(thread.id, thread);
     return thread;
 }
 
-function fromStoredThread(projectId: string, thread: Awaited<ReturnType<typeof getAgentThread>>): CloudThread {
-    return { id: thread.id, projectId, preview: thread.preview || "", name: thread.name || undefined, createdAt: thread.createdAt, updatedAt: thread.updatedAt, messages: thread.messages || [], history: thread.history || [] };
+function fromStoredThread(workspaceId: string, projectId: string, thread: Awaited<ReturnType<typeof getAgentThread>>): CloudThread {
+    return { id: thread.id, workspaceId, projectId, preview: thread.preview || "", name: thread.name || undefined, createdAt: thread.createdAt, updatedAt: thread.updatedAt, messages: thread.messages || [], history: thread.history || [] };
 }
 
 async function persistThread(runtime: UserRuntime, thread: CloudThread) {
-    const saved = await saveAgentThread(runtime.authCookie, thread.projectId, thread);
+    if (thread.workspaceId !== runtime.workspaceId) throw new Error("Agent 对话不属于当前创作空间");
+    const saved = await saveAgentThread(runtime.authCookie, runtime.workspaceId, thread.projectId, thread);
     thread.createdAt = saved.createdAt;
     thread.updatedAt = saved.updatedAt;
 }
@@ -391,6 +396,12 @@ function requestUrl(req: Request) {
 function requestProjectId(req: Request) {
     const value = String(req.body?.projectId || req.query.projectId || "default").trim();
     return value.slice(0, 160) || "default";
+}
+
+function requestWorkspaceId(req: Request) {
+    const header = Array.isArray(req.headers["x-workspace-id"]) ? req.headers["x-workspace-id"][0] : req.headers["x-workspace-id"];
+    const value = String(header || req.body?.workspaceId || req.query.workspaceId || "").trim();
+    return value.slice(0, 160);
 }
 
 function route(handler: (req: Request, res: Response) => Promise<unknown>) {

@@ -17,6 +17,7 @@ import { PaymentModule } from "./payments/payment.module";
 import { RechargeModule } from "./recharge/recharge.module";
 import { ProviderModule } from "./providers/provider.module";
 import { WalletModule } from "./wallet/wallet.module";
+import { WorkspaceModule } from "./workspaces/workspace.module";
 
 @Module({
     imports: [
@@ -30,6 +31,7 @@ import { WalletModule } from "./wallet/wallet.module";
         CanvasMediaModule,
         CanvasProjectModule,
         WalletModule,
+        WorkspaceModule,
         PaymentModule,
         RechargeModule,
         AdminModule,

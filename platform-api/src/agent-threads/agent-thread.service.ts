@@ -1,38 +1,42 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, type AgentThread } from "@prisma/client";
+import { Prisma, WorkspaceRole, type AgentThread } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service";
 import type { AgentThreadQueryDto, UpsertAgentThreadDto } from "./agent-thread.dto";
+import { WorkspaceService } from "../workspaces/workspace.service";
 
 const AGENT_ROLES = new Set(["user", "assistant", "tool", "error", "system"]);
 
 @Injectable()
 export class AgentThreadService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService, private readonly workspaces: WorkspaceService) {}
 
-    async list(userId: string, query: AgentThreadQueryDto) {
+    async list(userId: string, workspacePublicId: string | undefined, query: AgentThreadQueryDto) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId);
         const search = query.search?.trim();
         const where: Prisma.AgentThreadWhereInput = {
-            userId,
+            workspaceId: workspace.id,
             projectId: query.projectId,
             ...(search ? { OR: [{ preview: { contains: search, mode: "insensitive" } }, { name: { contains: search, mode: "insensitive" } }] } : {}),
         };
         const [threads, active] = await Promise.all([
             this.prisma.agentThread.findMany({ where, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: 40 }),
-            this.prisma.agentThread.findFirst({ where: { userId, projectId: query.projectId }, orderBy: [{ lastOpenedAt: "desc" }, { updatedAt: "desc" }] }),
+            this.prisma.agentThread.findFirst({ where: { workspaceId: workspace.id, projectId: query.projectId }, orderBy: [{ lastOpenedAt: "desc" }, { updatedAt: "desc" }] }),
         ]);
         return { threads, activeThreadId: active?.publicId || "" };
     }
 
-    async get(userId: string, publicId: string, projectId: string, touch = true) {
-        const thread = await this.findOwned(userId, publicId, projectId);
+    async get(userId: string, workspacePublicId: string | undefined, publicId: string, projectId: string, touch = true) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId);
+        const thread = await this.findAccessible(workspace.id, publicId, projectId);
         if (!touch) return thread;
         return this.prisma.agentThread.update({ where: { id: thread.id }, data: { lastOpenedAt: new Date() } });
     }
 
-    async upsert(userId: string, publicId: string, input: UpsertAgentThreadDto) {
+    async upsert(userId: string, workspacePublicId: string | undefined, publicId: string, input: UpsertAgentThreadDto) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
         const existing = await this.prisma.agentThread.findUnique({ where: { publicId } });
-        if (existing && existing.userId !== userId) throw new ConflictException("对话编号已被占用");
+        if (existing && existing.workspaceId !== workspace.id) throw new ConflictException("对话编号已被占用");
         if (existing && existing.projectId !== input.projectId) throw new ConflictException("对话不属于当前画布");
         const data = {
             preview: input.preview?.trim().slice(0, 240) || "",
@@ -43,23 +47,24 @@ export class AgentThreadService {
         };
         return this.prisma.agentThread.upsert({
             where: { publicId },
-            create: { publicId, userId, projectId: input.projectId, ...data },
+            create: { publicId, userId, workspaceId: workspace.id, projectId: input.projectId, ...data },
             update: data,
         });
     }
 
-    async open(userId: string, publicId: string, projectId: string) {
-        return this.get(userId, publicId, projectId, true);
+    async open(userId: string, workspacePublicId: string | undefined, publicId: string, projectId: string) {
+        return this.get(userId, workspacePublicId, publicId, projectId, true);
     }
 
-    async remove(userId: string, publicId: string, projectId: string) {
-        const thread = await this.findOwned(userId, publicId, projectId);
+    async remove(userId: string, workspacePublicId: string | undefined, publicId: string, projectId: string) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
+        const thread = await this.findAccessible(workspace.id, publicId, projectId);
         await this.prisma.agentThread.delete({ where: { id: thread.id } });
     }
 
-    private async findOwned(userId: string, publicId: string, projectId: string) {
+    private async findAccessible(workspaceId: string, publicId: string, projectId: string) {
         const thread = await this.prisma.agentThread.findUnique({ where: { publicId } });
-        if (!thread || thread.userId !== userId || thread.projectId !== projectId) throw new NotFoundException("对话记录不存在");
+        if (!thread || thread.workspaceId !== workspaceId || thread.projectId !== projectId) throw new NotFoundException("对话记录不存在");
         return thread;
     }
 }

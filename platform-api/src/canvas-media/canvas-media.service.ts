@@ -6,31 +6,36 @@ import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { BadRequestException, Injectable, NotFoundException, PayloadTooLargeException } from "@nestjs/common";
 import type { CanvasMedia } from "@prisma/client";
+import { WorkspaceRole } from "@prisma/client";
 
 import { platformMediaDir, platformMediaMaxFileBytes } from "../common/environment";
 import { PrismaService } from "../prisma/prisma.service";
+import { WorkspaceService } from "../workspaces/workspace.service";
 
 const STORAGE_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,31}:[A-Za-z0-9_-]{8,120}$/;
-const ALLOWED_MIME_TYPE = /^(?:image|video|audio)\/[A-Za-z0-9.+-]+$|^application\/octet-stream$/;
+const ALLOWED_MIME_TYPE = /^(?:image|video|audio)\/[A-Za-z0-9.+-]+$|^model\/gltf(?:\+json|-binary)$|^application\/(?:gltf-buffer|octet-stream)$/;
 
 @Injectable()
 export class CanvasMediaService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService, private readonly workspaces: WorkspaceService) {}
 
-    async missing(userId: string, keys: string[]) {
+    async missing(userId: string, workspacePublicId: string | undefined, keys: string[]) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId);
         const uniqueKeys = [...new Set(keys)];
         uniqueKeys.forEach(validateStorageKey);
-        const records = await this.prisma.canvasMedia.findMany({ where: { userId, storageKey: { in: uniqueKeys } } });
+        const records = await this.prisma.canvasMedia.findMany({ where: { workspaceId: workspace.id, storageKey: { in: uniqueKeys } } });
         const available = new Set<string>();
         await Promise.all(records.map(async (record) => {
-            if (await fileExists(mediaPath(userId, record.storageKey))) available.add(record.storageKey);
+            if (await fileExists(mediaPath(record.userId, record.storageKey))) available.add(record.storageKey);
         }));
         return uniqueKeys.filter((key) => !available.has(key));
     }
 
-    async save(userId: string, storageKey: string, mimeType: string, stream: Readable & { truncated?: boolean }) {
+    async save(userId: string, workspacePublicId: string | undefined, storageKey: string, mimeType: string, stream: Readable & { truncated?: boolean }) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
         validateStorageKey(storageKey);
         validateMimeType(mimeType);
+        const existing = await this.prisma.canvasMedia.findUnique({ where: { workspaceId_storageKey: { workspaceId: workspace.id, storageKey } } });
         const target = mediaPath(userId, storageKey);
         const temporary = `${target}.${randomUUID()}.partial`;
         await mkdir(dirname(target), { recursive: true });
@@ -51,22 +56,25 @@ export class CanvasMediaService {
             if (!bytes) throw new BadRequestException("媒体文件不能为空");
             await rename(temporary, target);
             const checksum = hash.digest("hex");
-            return await this.prisma.canvasMedia.upsert({
-                where: { userId_storageKey: { userId, storageKey } },
-                create: { userId, storageKey, mimeType, bytes, checksum },
-                update: { mimeType, bytes, checksum },
+            const media = await this.prisma.canvasMedia.upsert({
+                where: { workspaceId_storageKey: { workspaceId: workspace.id, storageKey } },
+                create: { userId, workspaceId: workspace.id, storageKey, mimeType, bytes, checksum },
+                update: { userId, mimeType, bytes, checksum },
             });
+            if (existing?.userId && existing.userId !== userId) await rm(mediaPath(existing.userId, storageKey), { force: true }).catch(() => undefined);
+            return media;
         } catch (error) {
             await rm(temporary, { force: true }).catch(() => undefined);
             throw error;
         }
     }
 
-    async open(userId: string, storageKey: string) {
+    async open(userId: string, workspacePublicId: string | undefined, storageKey: string) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId);
         validateStorageKey(storageKey);
-        const media = await this.prisma.canvasMedia.findUnique({ where: { userId_storageKey: { userId, storageKey } } });
+        const media = await this.prisma.canvasMedia.findUnique({ where: { workspaceId_storageKey: { workspaceId: workspace.id, storageKey } } });
         if (!media) throw new NotFoundException("媒体文件不存在");
-        const path = mediaPath(userId, storageKey);
+        const path = mediaPath(media.userId, storageKey);
         if (!(await fileExists(path))) throw new NotFoundException("媒体文件不存在");
         return { media, stream: createReadStream(path) };
     }
@@ -80,7 +88,7 @@ export function validateStorageKey(storageKey: string) {
     if (!STORAGE_KEY_PATTERN.test(storageKey)) throw new BadRequestException("媒体存储编号格式无效");
 }
 
-function validateMimeType(mimeType: string) {
+export function validateMimeType(mimeType: string) {
     if (!ALLOWED_MIME_TYPE.test(mimeType) || mimeType.length > 120) throw new BadRequestException("媒体文件类型无效");
 }
 

@@ -3,7 +3,10 @@ import test from "node:test";
 import { ConflictException } from "@nestjs/common";
 
 import type { PrismaService } from "../prisma/prisma.service";
+import type { WorkspaceService } from "../workspaces/workspace.service";
 import { AgentThreadService, normalizeMessages } from "./agent-thread.service";
+
+const workspaces = { resolve: async () => ({ id: "workspace-a" }) } as unknown as WorkspaceService;
 
 test("Agent 对话列表始终按账户和画布隔离", async () => {
     const captured: unknown[] = [];
@@ -13,9 +16,9 @@ test("Agent 对话列表始终按账户和画布隔离", async () => {
             findFirst: async ({ where }: { where: unknown }) => { captured.push(where); return null; },
         },
     } as unknown as PrismaService;
-    const service = new AgentThreadService(prisma);
-    await service.list("user-a", { projectId: "canvas-a" });
-    assert.deepEqual(captured, [{ userId: "user-a", projectId: "canvas-a" }, { userId: "user-a", projectId: "canvas-a" }]);
+    const service = new AgentThreadService(prisma, workspaces);
+    await service.list("user-a", "team-a", { projectId: "canvas-a" });
+    assert.deepEqual(captured, [{ workspaceId: "workspace-a", projectId: "canvas-a" }, { workspaceId: "workspace-a", projectId: "canvas-a" }]);
 });
 
 test("持久化消息会移除图片 dataUrl，只保留附件元数据", () => {
@@ -32,8 +35,8 @@ test("持久化消息会移除图片 dataUrl，只保留附件元数据", () => 
     assert.equal("dataUrl" in attachment, false);
 });
 
-test("不同账户不能覆盖同一个 Agent 对话编号", async () => {
-    const prisma = { agentThread: { findUnique: async () => ({ userId: "user-a", projectId: "canvas-a" }) } } as unknown as PrismaService;
-    const service = new AgentThreadService(prisma);
-    await assert.rejects(() => service.upsert("user-b", "thread-1", { projectId: "canvas-a", messages: [], history: [] }), ConflictException);
+test("不同空间不能覆盖同一个 Agent 对话编号", async () => {
+    const prisma = { agentThread: { findUnique: async () => ({ workspaceId: "workspace-other", projectId: "canvas-a" }) } } as unknown as PrismaService;
+    const service = new AgentThreadService(prisma, workspaces);
+    await assert.rejects(() => service.upsert("user-b", "team-a", "thread-1", { projectId: "canvas-a", messages: [], history: [] }), ConflictException);
 });

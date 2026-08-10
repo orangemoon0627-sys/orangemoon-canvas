@@ -13,12 +13,14 @@ import { readImageMeta } from "@/lib/image-utils";
 import { randomId } from "@/lib/utils";
 import { canonicalOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
 import { uploadImage } from "@/services/image-storage";
+import { getActiveWorkspaceId } from "@/services/workspace-session";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useShallow } from "zustand/react/shallow";
 import { useAgentStore, type AgentAttachment, type AgentCanvasContext, type AgentChatItem, type AgentCreativeMode, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary } from "@/stores/use-agent-store";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { modelOptionName, useEffectiveConfig } from "@/stores/use-config-store";
+import { useWorkspaceStore } from "@/stores/use-workspace-store";
 import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { isSiteTool, runSiteTool, SITE_TOOL_LABELS } from "@/lib/agent/agent-site-tools";
 import { buildAgentGenerationPlan, generationQuoteItems, synchronizeAgentGenerationOps, updateAgentGenerationOps } from "@/lib/agent/agent-generation-plan";
@@ -64,7 +66,7 @@ type AgentEventPayload = {
 type AgentEventItem = { id?: string; type?: string; text?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
 
 type AgentLogContext = { endpoint: string; connected: boolean; enabled: boolean; activity: string; waiting: boolean; sending: boolean; messages: number; pendingTool?: string };
-type AgentWorkspace = { workspacePath: string; activeThreadId?: string };
+type AgentWorkspace = { workspacePath: string; workspaceId?: string; activeThreadId?: string };
 type AgentThreadsResponse = { ok?: boolean; workspace?: AgentWorkspace; data?: AgentThreadSummary[] };
 type AgentThreadResponse = { ok?: boolean; workspace?: AgentWorkspace; thread?: AgentThreadSummary; messages?: AgentChatItem[] };
 type AgentConfigResponse = { ok?: boolean; url?: string; token?: string; hasToken?: boolean };
@@ -77,6 +79,8 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const user = useUserStore((state) => state.user);
     const platformUser = useAuthStore((state) => state.user);
+    const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+    const isTeamWorkspace = useWorkspaceStore((state) => state.workspaces.some((workspace) => workspace.id === state.activeWorkspaceId && workspace.kind === "TEAM"));
     const effectiveConfig = useEffectiveConfig();
     const { message, modal } = App.useApp();
     const [searchParams] = useSearchParams();
@@ -255,6 +259,15 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
     }, [refreshWallet, sending, waiting]);
 
     useEffect(() => {
+        if (!connected || !isTeamWorkspace || sending || waiting) return;
+        const refresh = () => {
+            if (document.visibilityState === "visible") void loadThreads();
+        };
+        const timer = window.setInterval(refresh, 5_000);
+        return () => window.clearInterval(timer);
+    }, [connected, isTeamWorkspace, loadThreads, sending, waiting]);
+
+    useEffect(() => {
         let active = true;
         void fetchProviderCatalog()
             .then((catalog) => {
@@ -319,7 +332,8 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
         const enqueueEvent = (task: () => void | Promise<void>) => {
             eventQueue = eventQueue.then(task).catch((error) => addEventLog("同步会话失败", error));
         };
-        const source = new EventSource(`${endpoint}/events?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { withCredentials: true });
+        const eventParams = new URLSearchParams({ token, clientId, ...(activeWorkspaceId ? { workspaceId: activeWorkspaceId } : {}) });
+        const source = new EventSource(`${endpoint}/events?${eventParams}`, { withCredentials: true });
         source.addEventListener("hello", (event) => {
             const busy = Boolean(parseEventData<AgentHelloEvent>(event)?.codex?.busy);
             errorLoggedRef.current = false;
@@ -414,7 +428,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
             loadThreadsSequenceRef.current += 1;
             setAgentState({ connected: false, activity: useAgentStore.getState().enabled ? "连接中" : "离线" });
         };
-    }, [enabled, endpoint, loadThreads, message, refreshWallet, setAgentState, token]);
+    }, [activeWorkspaceId, enabled, endpoint, loadThreads, message, refreshWallet, setAgentState, token]);
 
     useEffect(() => {
         if (!connected) return;
@@ -500,7 +514,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
         if (!connected || (!sending && !waiting)) return;
         setAgentState({ activity: "停止中" });
         try {
-            await fetch(`${endpoint}/agent/codex/interrupt?token=${encodeURIComponent(token)}`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ threadId: useAgentStore.getState().activeThreadId || undefined }) });
+            await fetchAgentJson(endpoint, token, "/agent/codex/interrupt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ threadId: useAgentStore.getState().activeThreadId || undefined }) });
             addEventLog("用户停止", {});
         } catch {
             setAgentState({ activity: "停止失败" });
@@ -1519,7 +1533,7 @@ async function postState(endpoint: string, token: string, clientId: string, snap
         const response = await fetch(`${endpoint}/canvas/state?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, {
             method: "POST",
             credentials: "include",
-            headers: { "content-type": "application/json" },
+            headers: agentRequestHeaders({ "content-type": "application/json" }),
             body: JSON.stringify(snapshot ? { ...snapshot, hasCanvas: true } : { hasCanvas: false }),
         });
         return response.ok;
@@ -1530,12 +1544,12 @@ async function postState(endpoint: string, token: string, clientId: string, snap
 
 async function activateAgentClient(endpoint: string, token: string, clientId: string) {
     try {
-        await fetch(`${endpoint}/canvas/activate?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST", credentials: "include" });
+        await fetch(`${endpoint}/canvas/activate?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST", credentials: "include", headers: agentRequestHeaders() });
     } catch {}
 }
 
 async function postToolResult(endpoint: string, token: string, clientId: string, body: { requestId: string; result?: unknown; error?: string }) {
-    await fetch(`${endpoint}/canvas/result?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    await fetch(`${endpoint}/canvas/result?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST", credentials: "include", headers: agentRequestHeaders({ "content-type": "application/json" }), body: JSON.stringify(body) });
 }
 
 function agentMessageToChatMessage(item: AgentChatItem) {
@@ -1814,7 +1828,7 @@ async function attachmentNodeOps(endpoint: string, token: string, clientId: stri
             const id = String(item.id || "");
             const attachmentId = String(item.attachmentId || "");
             if (!id || !attachmentId) throw new Error("图片附件节点参数无效");
-            const res = await fetch(`${endpoint}/agent/attachments/${encodeURIComponent(attachmentId)}?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { credentials: "include" });
+            const res = await fetch(`${endpoint}/agent/attachments/${encodeURIComponent(attachmentId)}?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { credentials: "include", headers: agentRequestHeaders() });
             if (!res.ok) {
                 const body = (await res.json().catch(() => null)) as { error?: string } | null;
                 throw new Error(body?.error || "读取图片附件失败");
@@ -1844,7 +1858,7 @@ async function fetchAgentJson<T>(endpoint: string, token: string, path: string, 
     else init?.signal?.addEventListener("abort", abort, { once: true });
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const res = await fetch(url, { credentials: "include", ...init, signal: controller.signal });
+        const res = await fetch(url, { credentials: "include", ...init, headers: agentRequestHeaders(init?.headers), signal: controller.signal });
         const data = (await res.json().catch(() => ({}))) as T & { error?: string; msg?: string };
         if (!res.ok) throw new Error(data.error || data.msg || "本地 Agent 请求失败");
         return data;
@@ -1855,6 +1869,13 @@ async function fetchAgentJson<T>(endpoint: string, token: string, path: string, 
         window.clearTimeout(timer);
         init?.signal?.removeEventListener("abort", abort);
     }
+}
+
+function agentRequestHeaders(init?: HeadersInit) {
+    const headers = new Headers(init);
+    const workspaceId = getActiveWorkspaceId();
+    if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
+    return headers;
 }
 
 async function discoverAgentConfig(endpoint: string) {

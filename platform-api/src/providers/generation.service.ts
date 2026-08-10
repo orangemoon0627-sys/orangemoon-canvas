@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, ServiceUnavailableException } from "@nestjs/common";
-import { AssetKind, GenerationStatus, Prisma, type GenerationJob } from "@prisma/client";
+import { AssetKind, GenerationStatus, Prisma, WorkspaceRole, type GenerationJob } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
@@ -9,6 +9,7 @@ import { findProviderModel, isExclusiveVideoModelId, resolveProviderVideoResolut
 import { PricingService, serializeQuote } from "./pricing.service";
 import { ProviderUpstreamService } from "./provider-upstream.service";
 import { imageRequestSchema, minimaxSpeechSchema, videoRequestSchema, type ImageRequest, type SpeechRequest, type VideoRequest } from "./provider-schemas";
+import { WorkspaceService } from "../workspaces/workspace.service";
 
 @Injectable()
 export class GenerationService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -21,6 +22,7 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         private readonly ledger: LedgerService,
         private readonly pricing: PricingService,
         private readonly upstream: ProviderUpstreamService,
+        private readonly workspaces: WorkspaceService,
     ) {}
 
     onApplicationBootstrap() {
@@ -38,11 +40,12 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
     parseVideo(body: unknown) { return parseSchema(videoRequestSchema, body); }
     parseSpeech(body: unknown) { return parseSchema(minimaxSpeechSchema, body); }
 
-    async image(userId: string, idempotencyKey: string, input: ImageRequest) {
+    async image(userId: string, workspacePublicId: string | undefined, idempotencyKey: string, input: ImageRequest) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
         const model = findProviderModel(input.model)!;
         this.upstream.assertConfigured(model.provider);
         const quote = this.pricing.quote(model, input.n);
-        const reservation = await this.reserve(userId, idempotencyKey, "image", input.model, quote, summarizeImage(input));
+        const reservation = await this.reserve(userId, workspace.id, idempotencyKey, "image", input.model, quote, summarizeImage(input));
         this.assertFreshSyncReservation(reservation);
         try {
             const result = await this.upstream.image(input);
@@ -55,7 +58,8 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         }
     }
 
-    async createVideo(userId: string, idempotencyKey: string, input: VideoRequest) {
+    async createVideo(userId: string, workspacePublicId: string | undefined, idempotencyKey: string, input: VideoRequest) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
         const model = findProviderModel(input.model);
         if (!model || model.capability !== "video" || !isExclusiveVideoModelId(input.model)) throw new BadRequestException("该视频模型已停用，未调用上游且不会扣费");
         const resolution = resolveProviderVideoResolution(model, input.resolution);
@@ -63,7 +67,7 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         const normalizedInput = { ...input, resolution };
         this.upstream.assertConfigured(model.provider);
         const quote = this.pricing.quote(model, normalizedInput.duration, resolution);
-        const reservation = await this.reserve(userId, idempotencyKey, "video", normalizedInput.model, quote, summarizeVideo(normalizedInput));
+        const reservation = await this.reserve(userId, workspace.id, idempotencyKey, "video", normalizedInput.model, quote, summarizeVideo(normalizedInput));
         if (!reservation.created) {
             if (reservation.job.status === GenerationStatus.SUBMITTED || reservation.job.status === GenerationStatus.SUCCEEDED) return { id: reservation.job.publicId, state: reservation.job.providerState || "submitted" };
             throw new ConflictException("这个幂等请求已经处理且不能再次提交");
@@ -139,11 +143,12 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         return { id: job.publicId, state: "success", status: "已完成", is_final: true, progress: "100%", ...(resultUrl ? { result_url: resultUrl } : {}) };
     }
 
-    async speech(userId: string, idempotencyKey: string, input: SpeechRequest) {
+    async speech(userId: string, workspacePublicId: string | undefined, idempotencyKey: string, input: SpeechRequest) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
         const model = findProviderModel(input.model)!;
         this.upstream.assertConfigured(model.provider);
         const reserveQuote = this.pricing.quote(model, input.input.length);
-        const reservation = await this.reserve(userId, idempotencyKey, "audio", input.model, reserveQuote, summarizeSpeech(input));
+        const reservation = await this.reserve(userId, workspace.id, idempotencyKey, "audio", input.model, reserveQuote, summarizeSpeech(input));
         this.assertFreshSyncReservation(reservation);
         try {
             const output = await this.upstream.speech(input);
@@ -160,15 +165,16 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         return this.prisma.generationJob.findMany({ where: { userId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: Math.max(1, Math.min(100, limit)) });
     }
 
-    async imageAsset(userId: string, publicId: string) {
-        const asset = await this.prisma.asset.findFirst({ where: { publicId, userId, kind: AssetKind.IMAGE }, select: { data: true } });
+    async imageAsset(userId: string, workspacePublicId: string | undefined, publicId: string) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId);
+        const asset = await this.prisma.asset.findFirst({ where: { publicId, workspaceId: workspace.id, kind: AssetKind.IMAGE }, select: { data: true } });
         if (!asset) throw new NotFoundException("生成图片不存在");
         const sourceUrl = String(asRecord(asset.data).dataUrl || "").trim();
         if (!/^https?:\/\//i.test(sourceUrl)) throw new NotFoundException("生成图片没有可读取的源地址");
         return this.upstream.imageMedia(sourceUrl);
     }
 
-    private async reserve(userId: string, idempotencyKey: string, capability: string, model: string, quote: ReturnType<PricingService["quote"]>, requestSummary: Prisma.InputJsonValue) {
+    private async reserve(userId: string, workspaceId: string, idempotencyKey: string, capability: string, model: string, quote: ReturnType<PricingService["quote"]>, requestSummary: Prisma.InputJsonValue) {
         validateIdempotencyKey(idempotencyKey);
         return this.ledger.runSerializable(async (tx) => {
             const existing = await tx.generationJob.findUnique({ where: { userId_idempotencyKey: { userId, idempotencyKey } } });
@@ -185,6 +191,7 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
                 data: {
                     publicId,
                     userId,
+                    workspaceId,
                     capability,
                     model,
                     idempotencyKey,
@@ -257,6 +264,7 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
                 create: {
                     publicId: `AST${randomBytes(12).toString("hex").toUpperCase()}`,
                     userId: job.userId,
+                    workspaceId: job.workspaceId,
                     generationJobId: job.id,
                     ordinal,
                     kind: output.kind,

@@ -73,15 +73,15 @@ export class ProviderController {
     }
 
     @Post("metajing/v1/images/generations")
-    async image(@CurrentUser() user: AuthenticatedUser, @Headers("idempotency-key") idempotencyKey: string, @Body() body: unknown, @Res({ passthrough: true }) reply: FastifyReply) {
-        const output = await this.generations.image(user.id, idempotencyKey, this.generations.parseImage(body));
+    async image(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Headers("idempotency-key") idempotencyKey: string, @Body() body: unknown, @Res({ passthrough: true }) reply: FastifyReply) {
+        const output = await this.generations.image(user.id, workspaceId, idempotencyKey, this.generations.parseImage(body));
         reply.header("X-Generation-Job", output.jobId).header("X-Charged-Credits", output.chargedCredits).header("Cache-Control", "no-store");
         return output.result;
     }
 
     @Get("assets/:assetId/content")
-    async imageAsset(@CurrentUser() user: AuthenticatedUser, @Param("assetId") assetId: string, @Res() reply: FastifyReply) {
-        const media = await this.generations.imageAsset(user.id, assetId);
+    async imageAsset(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Param("assetId") assetId: string, @Res() reply: FastifyReply) {
+        const media = await this.generations.imageAsset(user.id, workspaceId, assetId);
         reply
             .header("Content-Type", media.contentType)
             .header("Content-Length", String(media.contentLength))
@@ -91,8 +91,8 @@ export class ProviderController {
     }
 
     @Post("metajing/v1/video/generations")
-    async createVideo(@CurrentUser() user: AuthenticatedUser, @Headers("idempotency-key") idempotencyKey: string, @Body() body: unknown) {
-        return this.generations.createVideo(user.id, idempotencyKey, this.generations.parseVideo(body));
+    async createVideo(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Headers("idempotency-key") idempotencyKey: string, @Body() body: unknown) {
+        return this.generations.createVideo(user.id, workspaceId, idempotencyKey, this.generations.parseVideo(body));
     }
 
     @Get("metajing/v1/video/generations/:taskId")
@@ -101,9 +101,9 @@ export class ProviderController {
     }
 
     @Post("minimax/v1/audio/speech")
-    async speech(@CurrentUser() user: AuthenticatedUser, @Headers("idempotency-key") idempotencyKey: string, @Body() body: unknown, @Res() reply: FastifyReply) {
+    async speech(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Headers("idempotency-key") idempotencyKey: string, @Body() body: unknown, @Res() reply: FastifyReply) {
         const input = this.generations.parseSpeech(body);
-        const output = await this.generations.speech(user.id, idempotencyKey, input);
+        const output = await this.generations.speech(user.id, workspaceId, idempotencyKey, input);
         reply
             .header("Content-Type", audioMimeType(input.response_format))
             .header("Content-Length", String(output.audio.byteLength))

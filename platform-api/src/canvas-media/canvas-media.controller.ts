@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Param, Post, Put, Req, Res, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Param, Post, Put, Req, Res, UseGuards } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import type { AuthenticatedUser } from "../auth/auth.types";
@@ -14,20 +14,20 @@ export class CanvasMediaController {
 
     @Post("missing")
     @HttpCode(200)
-    async missing(@CurrentUser() user: AuthenticatedUser, @Body() input: MissingCanvasMediaDto) {
-        return { ok: true, missing: await this.media.missing(user.id, input.keys) };
+    async missing(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Body() input: MissingCanvasMediaDto) {
+        return { ok: true, missing: await this.media.missing(user.id, workspaceId, input.keys) };
     }
 
     @Put(":storageKey")
-    async upload(@CurrentUser() user: AuthenticatedUser, @Param("storageKey") storageKey: string, @Req() request: FastifyRequest) {
+    async upload(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Param("storageKey") storageKey: string, @Req() request: FastifyRequest) {
         const file = await request.file();
         if (!file) throw new BadRequestException("请选择媒体文件");
-        return { ok: true, media: serializeCanvasMedia(await this.media.save(user.id, storageKey, file.mimetype, file.file)) };
+        return { ok: true, media: serializeCanvasMedia(await this.media.save(user.id, workspaceId, storageKey, file.mimetype, file.file)) };
     }
 
     @Get(":storageKey")
-    async content(@CurrentUser() user: AuthenticatedUser, @Param("storageKey") storageKey: string, @Res() reply: FastifyReply) {
-        const result = await this.media.open(user.id, storageKey);
+    async content(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Param("storageKey") storageKey: string, @Res() reply: FastifyReply) {
+        const result = await this.media.open(user.id, workspaceId, storageKey);
         reply.header("Content-Type", result.media.mimeType);
         reply.header("Content-Length", result.media.bytes.toString());
         reply.header("Cache-Control", "private, max-age=31536000, immutable");

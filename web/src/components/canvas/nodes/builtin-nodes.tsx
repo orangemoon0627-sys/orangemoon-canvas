@@ -1,9 +1,11 @@
-import { FileText, Group, Image as ImageIcon, Music2, Settings2, Video } from "lucide-react";
+import { Clapperboard, FileText, Group, Image as ImageIcon, Music2, Settings2, Video } from "lucide-react";
 
 import { NODE_SPECS } from "@/constant/canvas";
 import { registerNodeDefinitions } from "@/lib/canvas/node-registry";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
-import type { CanvasNodeDefinition, CanvasNodeResource } from "@/types/canvas-plugin";
+import type { CanvasNodeContext, CanvasNodeDefinition, CanvasNodeResource } from "@/types/canvas-plugin";
+import { DirectorNodeContent } from "@/components/director/director-node-content";
+import { useDirectorStudioStore } from "@/stores/use-director-studio-store";
 
 // 内置节点的可扩展元数据(尺寸/初始 metadata 复用 NODE_SPECS)。
 // 渲染仍由 canvas-node 内部渲染器负责,故不提供 Content。
@@ -24,6 +26,20 @@ const BUILTIN_DEFINITIONS: CanvasNodeDefinition[] = [
     { type: CanvasNodeType.Audio, title: "音频", icon: <Music2 className={iconClass} />, minimapColor: "#a855f7", resource: builtinResource },
     { type: CanvasNodeType.Config, title: "生成配置", icon: <Settings2 className={iconClass} />, minimapColor: "#60a5fa", hasSourceHandle: false },
     { type: CanvasNodeType.Group, title: "组", icon: <Group className={iconClass} />, minimapColor: "#94a3b8" },
+    {
+        type: CanvasNodeType.Director,
+        title: "导演台",
+        icon: <Clapperboard className={iconClass} />,
+        description: "3D 场景、机位、镜头与关键帧",
+        minimapColor: "#e9583e",
+        hidePanel: true,
+        interactionToggle: true,
+        Content: DirectorNodeContent,
+        onDoubleClick: (ctx: CanvasNodeContext) => {
+            useDirectorStudioStore.getState().open(ctx.node.id);
+            return true;
+        },
+    },
 ].map((def) => {
     const spec = NODE_SPECS[def.type];
     return { ...def, title: spec.title, defaultSize: { width: spec.width, height: spec.height }, defaultMetadata: spec.metadata };

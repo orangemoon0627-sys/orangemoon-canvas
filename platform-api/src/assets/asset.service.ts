@@ -1,20 +1,22 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { AssetKind, Prisma, type Asset } from "@prisma/client";
+import { AssetKind, Prisma, WorkspaceRole, type Asset } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service";
 import type { AssetListQueryDto, UpsertAssetDto } from "./asset.dto";
+import { WorkspaceService } from "../workspaces/workspace.service";
 
 const PUBLIC_ID_PATTERN = /^[A-Za-z0-9_-]{8,80}$/;
 const MAX_JSON_BYTES = 100 * 1024;
 
 @Injectable()
 export class AssetService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService, private readonly workspaces: WorkspaceService) {}
 
-    async list(userId: string, query: AssetListQueryDto) {
+    async list(userId: string, workspacePublicId: string | undefined, query: AssetListQueryDto) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId);
         const search = query.search?.trim();
         const where: Prisma.AssetWhereInput = {
-            userId,
+            workspaceId: workspace.id,
             ...(query.kind ? { kind: query.kind } : {}),
             ...(search ? { OR: [{ title: { contains: search, mode: "insensitive" } }, { source: { contains: search, mode: "insensitive" } }, { note: { contains: search, mode: "insensitive" } }] } : {}),
         };
@@ -25,21 +27,23 @@ export class AssetService {
         return { total, assets };
     }
 
-    async upsert(userId: string, publicId: string, input: UpsertAssetDto) {
+    async upsert(userId: string, workspacePublicId: string | undefined, publicId: string, input: UpsertAssetDto) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
         validatePublicId(publicId);
         validatePayloadSize(input);
-        const existing = await this.prisma.asset.findUnique({ where: { publicId }, select: { id: true, userId: true } });
-        if (existing && existing.userId !== userId) throw new ConflictException("资产编号已被占用");
+        const existing = await this.prisma.asset.findUnique({ where: { publicId }, select: { id: true, workspaceId: true } });
+        if (existing && existing.workspaceId !== workspace.id) throw new ConflictException("资产编号已被占用");
         const data = toAssetData(input);
         const asset = existing
             ? await this.prisma.asset.update({ where: { id: existing.id }, data })
-            : await this.prisma.asset.create({ data: { publicId, userId, ...data } });
+            : await this.prisma.asset.create({ data: { publicId, userId, workspaceId: workspace.id, ...data } });
         return asset;
     }
 
-    async remove(userId: string, publicId: string) {
+    async remove(userId: string, workspacePublicId: string | undefined, publicId: string) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
         validatePublicId(publicId);
-        const result = await this.prisma.asset.deleteMany({ where: { publicId, userId } });
+        const result = await this.prisma.asset.deleteMany({ where: { publicId, workspaceId: workspace.id } });
         if (result.count !== 1) throw new NotFoundException("资产不存在");
     }
 }

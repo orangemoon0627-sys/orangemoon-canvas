@@ -33,6 +33,7 @@ import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "@/components/canvas
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { Minimap } from "@/components/canvas/canvas-mini-map";
 import { CanvasNode } from "@/components/canvas/canvas-node";
+import { DirectorStudioHost } from "@/components/director/director-studio-host";
 import { CanvasEmptyQuickStart } from "@/components/canvas/canvas-empty-quick-start";
 import { CanvasNodePromptPanel, type CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { CanvasToolbar } from "@/components/canvas/canvas-toolbar";
@@ -40,7 +41,9 @@ import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/a
 import { CanvasSidePanel } from "@/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
 import { useAgentStore } from "@/stores/use-agent-store";
-import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { CANVAS_REMOTE_UPDATE_EVENT, useCanvasStore, type CanvasRemoteUpdateDetail } from "@/stores/canvas/use-canvas-store";
+import { useDirectorStudioStore } from "@/stores/use-director-studio-store";
+import { useWorkspaceStore } from "@/stores/use-workspace-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -222,9 +225,11 @@ function InfiniteCanvasPage() {
     const createProject = useCanvasStore((state) => state.createProject);
     const openProject = useCanvasStore((state) => state.openProject);
     const updateProject = useCanvasStore((state) => state.updateProject);
+    const refreshProject = useCanvasStore((state) => state.refreshProject);
     const renameProject = useCanvasStore((state) => state.renameProject);
     const deleteProjects = useCanvasStore((state) => state.deleteProjects);
     const currentProject = useCanvasStore((state) => state.projects.find((project) => project.id === projectId));
+    const isTeamWorkspace = useWorkspaceStore((state) => state.workspaces.some((workspace) => workspace.id === state.activeWorkspaceId && workspace.kind === "TEAM"));
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [nodes, setNodes] = useState<CanvasNodeData[]>([]);
     const [connections, setConnections] = useState<CanvasConnection[]>([]);
@@ -283,6 +288,7 @@ function InfiniteCanvasPage() {
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
     const resumedVideoTaskIdsRef = useRef(new Set<string>());
+    const remoteRestoreSequenceRef = useRef(0);
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -380,6 +386,60 @@ function InfiniteCanvasPage() {
         };
         void restore();
     }, [hydrated, navigate, openProject, projectId]);
+
+    useEffect(() => {
+        const restoreRemote = (event: Event) => {
+            const detail = (event as CustomEvent<CanvasRemoteUpdateDetail>).detail;
+            if (!detail || detail.projectId !== projectId) return;
+            if (detail.deletedProject) {
+                navigate("/canvas", { replace: true });
+                return;
+            }
+            const project = detail.project;
+            if (!project) return;
+            const sequence = ++remoteRestoreSequenceRef.current;
+            historyPausedRef.current = true;
+            if (useDirectorStudioStore.getState().nodeId) useDirectorStudioStore.getState().close();
+            void Promise.all([hydrateCanvasImages(resetInterruptedGeneration(project.nodes)), hydrateAssistantImages(project.chatSessions || [])]).then(([restoredNodes, restoredSessions]) => {
+                if (sequence !== remoteRestoreSequenceRef.current) return;
+                setNodes(restoredNodes);
+                setConnections(project.connections);
+                setChatSessions(restoredSessions);
+                setActiveChatId(project.activeChatId || null);
+                setBackgroundMode(project.backgroundMode);
+                setShowImageInfo(project.showImageInfo || false);
+                setViewport(project.viewport);
+                setSelectedNodeIds((selected) => new Set([...selected].filter((id) => restoredNodes.some((node) => node.id === id))));
+                historyRef.current = { past: [], future: [] };
+                if (historyCommitTimerRef.current) clearTimeout(historyCommitTimerRef.current);
+                historyCommitTimerRef.current = null;
+                lastHistoryRef.current = { nodes: restoredNodes, connections: project.connections, chatSessions: restoredSessions, activeChatId: project.activeChatId || null, backgroundMode: project.backgroundMode, showImageInfo: project.showImageInfo || false };
+                setHistoryState({ canUndo: false, canRedo: false });
+                requestAnimationFrame(() => {
+                    if (sequence === remoteRestoreSequenceRef.current) historyPausedRef.current = false;
+                });
+                message.info("已同步团队成员更新的画布");
+            }).catch(() => {
+                if (sequence === remoteRestoreSequenceRef.current) historyPausedRef.current = false;
+            });
+        };
+        window.addEventListener(CANVAS_REMOTE_UPDATE_EVENT, restoreRemote);
+        return () => window.removeEventListener(CANVAS_REMOTE_UPDATE_EVENT, restoreRemote);
+    }, [message, navigate, projectId]);
+
+    useEffect(() => {
+        if (!projectLoaded || !isTeamWorkspace) return;
+        const refresh = () => {
+            if (document.visibilityState !== "visible" || historyCommitTimerRef.current || viewportSaveTimerRef.current || useDirectorStudioStore.getState().nodeId) return;
+            void refreshProject(projectId);
+        };
+        const timer = window.setInterval(refresh, 5_000);
+        window.addEventListener("focus", refresh);
+        return () => {
+            window.clearInterval(timer);
+            window.removeEventListener("focus", refresh);
+        };
+    }, [isTeamWorkspace, projectId, projectLoaded, refreshProject]);
 
     useEffect(() => {
         if (!projectLoaded || applyingHistoryRef.current || historyPausedRef.current) return;
@@ -730,9 +790,19 @@ function InfiniteCanvasPage() {
                     ? true
                     : isBuiltinType(type) && type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio && type !== CanvasNodeType.Group;
             if (wantsPanel) setDialogNodeId(newNode.id);
+            return newNode;
         },
         [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
     );
+
+    const openDirectorStudio = useCallback(() => {
+        const node = createNode(CanvasNodeType.Director);
+        useDirectorStudioStore.getState().open(node.id);
+    }, [createNode]);
+
+    const updateDirectorMetadata = useCallback((nodeId: string, metadata: CanvasNodeMetadata) => {
+        setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...metadata } } : node));
+    }, []);
 
     const openVibeDirector = useCallback(
         (prompt?: string) => {
@@ -3084,7 +3154,7 @@ function InfiniteCanvasPage() {
                         onAddScript={() => createNode(CanvasNodeType.Text, undefined, { content: "", status: NODE_STATUS_IDLE }, "脚本")}
                         onAddGroup={() => createNode(CanvasNodeType.Group)}
                         onAddExtensionNode={(type) => createNode(type)}
-                        onOpenDirector={() => openVibeDirector()}
+                        onOpenDirector={openDirectorStudio}
                         onOpenAssetPicker={() => setAssetPickerOpen(true)}
                         onUndo={undoCanvas}
                         onRedo={redoCanvas}
@@ -3120,6 +3190,8 @@ function InfiniteCanvasPage() {
                         }}
                     />
                 ) : null}
+
+                <DirectorStudioHost nodes={nodes} connections={connections} onUpdateMetadata={updateDirectorMetadata} onApplyOps={applyAgentOps} />
 
                 <input ref={imageInputRef} type="file" accept="image/*,video/*,audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav" className="hidden" onChange={handleImageInputChange} />
 

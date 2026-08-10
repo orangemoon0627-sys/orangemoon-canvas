@@ -14,21 +14,21 @@ export class AgentBillingController {
     constructor(private readonly billing: AgentBillingService) {}
 
     @Post("reserve")
-    async reserve(@CurrentUser() user: AuthenticatedUser, @Headers("x-canvas-agent-secret") secret: string | undefined, @Body() input: ReserveAgentTurnDto) {
+    async reserve(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Headers("x-canvas-agent-secret") secret: string | undefined, @Body() input: ReserveAgentTurnDto) {
         assertInternalAgent(secret);
-        return { ok: true, turn: serializeAgentTurn(await this.billing.reserve(user.id, input)) };
+        return { ok: true, turn: serializeAgentTurn(await this.billing.reserve(user.id, workspaceId, input)) };
     }
 
     @Post(":turnId/settle")
-    async settle(@CurrentUser() user: AuthenticatedUser, @Headers("x-canvas-agent-secret") secret: string | undefined, @Param("turnId") turnId: string, @Body() input: SettleAgentTurnDto) {
+    async settle(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Headers("x-canvas-agent-secret") secret: string | undefined, @Param("turnId") turnId: string, @Body() input: SettleAgentTurnDto) {
         assertInternalAgent(secret);
-        return { ok: true, turn: serializeAgentTurn(await this.billing.settle(user.id, turnId, input)) };
+        return { ok: true, turn: serializeAgentTurn(await this.billing.settle(user.id, workspaceId, turnId, input)) };
     }
 
     @Post(":turnId/release")
-    async release(@CurrentUser() user: AuthenticatedUser, @Headers("x-canvas-agent-secret") secret: string | undefined, @Param("turnId") turnId: string, @Body() input: ReleaseAgentTurnDto) {
+    async release(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Headers("x-canvas-agent-secret") secret: string | undefined, @Param("turnId") turnId: string, @Body() input: ReleaseAgentTurnDto) {
         assertInternalAgent(secret);
-        return { ok: true, turn: serializeAgentTurn(await this.billing.release(user.id, turnId, input)) };
+        return { ok: true, turn: serializeAgentTurn(await this.billing.release(user.id, workspaceId, turnId, input)) };
     }
 
     @Get()

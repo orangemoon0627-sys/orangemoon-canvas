@@ -312,6 +312,70 @@ test("project-bound tool calls include the expected project id", async (t) => {
     assert.deepEqual(await result, { ok: true });
 });
 
+test("Agent 可创建完整导演台节点", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState(snapshot("canvas-first"), "first");
+
+    const result = session.callTool("canvas_create_director_scene", {
+        title: "山门斗法",
+        scene: {
+            name: "山门斗法",
+            duration: 8,
+            cameras: [{ id: "camera-1", name: "全景", position: [6, 4, 9], target: [0, 1, 0], fov: 40 }],
+            shots: [{ id: "shot-1", name: "建立冲突", cameraId: "camera-1", start: 0, end: 8, movement: "push-in" }],
+        },
+    });
+    const call = client.event("tool_call");
+    const ops = (field(call, "input") as { ops: Array<Record<string, unknown>> }).ops;
+    assert.equal(ops[0].nodeType, "director");
+    assert.equal(ops[0].title, "山门斗法");
+    assert.equal(((ops[0].metadata as Record<string, unknown>).director as Record<string, unknown>).duration, 8);
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
+});
+
+test("Agent 原地迭代导演台并保留未修改场景字段", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState({
+        ...snapshot("canvas-first"),
+        nodes: [{ id: "director-1", type: "director", title: "第一版", position: { x: 10, y: 20 }, width: 440, height: 280, metadata: { director: { name: "第一版", duration: 10 } } }],
+    }, "first");
+
+    const result = session.callTool("canvas_update_director_scene", { nodeId: "director-1", title: "第二版", scene: { name: "第二版", duration: 15 } });
+    const call = client.event("tool_call");
+    const op = (field(call, "input") as { ops: Array<Record<string, unknown>> }).ops[0];
+    const scene = (op.metadata as Record<string, unknown>).director as Record<string, unknown>;
+    assert.equal(op.id, "director-1");
+    assert.equal((op.patch as Record<string, unknown>).title, "第二版");
+    assert.equal(scene.duration, 15);
+    assert.ok(Array.isArray(scene.objects));
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
+});
+
+test("Agent 可从导演台输出 Seedance 运镜文本节点", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState({
+        ...snapshot("canvas-first"),
+        nodes: [{ id: "director-1", type: "director", title: "导演台", position: { x: 10, y: 20 }, width: 440, height: 280, metadata: { director: { name: "追逐", cameras: [{ id: "camera-1", name: "低机位", position: [3, 1, 7], target: [0, 1, 0], fov: 35 }], shots: [{ id: "shot-1", name: "逼近", cameraId: "camera-1", start: 0, end: 5, movement: "push-in" }] } } }],
+    }, "first");
+
+    const result = session.callTool("canvas_export_director_prompt", { nodeId: "director-1" });
+    const call = client.event("tool_call");
+    const ops = (field(call, "input") as { ops: Array<Record<string, unknown>> }).ops;
+    assert.equal(ops[0].nodeType, "text");
+    assert.match(String((ops[0].metadata as Record<string, unknown>).content), /镜头1/);
+    assert.deepEqual({ fromNodeId: ops[1].fromNodeId, toNodeId: ops[1].toNodeId }, { fromNodeId: "director-1", toNodeId: ops[0].id });
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
+});
+
 test("closing the bound client falls back to the active client", async (t) => {
     const session = new CanvasSession();
     const first = connect(session, "first");

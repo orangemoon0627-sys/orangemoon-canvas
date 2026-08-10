@@ -5,8 +5,22 @@ import { CREATIVE_SKILL_IDS } from "./creative-skills.js";
 const recordSchema = z.record(z.unknown());
 const positionSchema = z.object({ x: z.number(), y: z.number() });
 const viewportSchema = z.object({ x: z.number(), y: z.number(), k: z.number() });
-const nodeTypeSchema = z.enum(["image", "text", "config", "video", "audio"]);
+const nodeTypeSchema = z.enum(["image", "text", "config", "video", "audio", "director"]);
 const generationModeSchema = z.enum(["text", "image", "video", "audio"]);
+const directorVectorSchema = z.tuple([z.number(), z.number(), z.number()]);
+const directorSceneSchema = z.object({
+    version: z.literal(1).optional(),
+    name: z.string().optional(),
+    duration: z.number().min(1).max(120).optional(),
+    fps: z.number().min(12).max(60).optional(),
+    aspectRatio: z.enum(["16:9", "9:16", "1:1", "4:3", "3:4"]).optional(),
+    environment: z.enum(["studio", "courtyard", "mountain", "desert", "space"]).optional(),
+    background: z.string().optional(),
+    objects: z.array(z.object({ id: z.string().optional(), name: z.string(), primitive: z.enum(["character", "box", "sphere", "cylinder", "cone", "model"]), position: directorVectorSchema, rotation: directorVectorSchema, scale: directorVectorSchema, color: z.string().optional(), modelUrl: z.string().optional(), storageKey: z.string().optional(), visible: z.boolean().optional() })).max(80).optional(),
+    cameras: z.array(z.object({ id: z.string().optional(), name: z.string(), position: directorVectorSchema, target: directorVectorSchema, fov: z.number().min(15).max(100).optional() })).max(24).optional(),
+    shots: z.array(z.object({ id: z.string().optional(), name: z.string(), cameraId: z.string(), start: z.number(), end: z.number(), movement: z.enum(["static", "push-in", "pull-out", "pan-left", "pan-right", "orbit", "follow"]), description: z.string().optional() })).max(80).optional(),
+    keyframes: z.array(z.object({ id: z.string().optional(), targetType: z.enum(["object", "camera"]), targetId: z.string(), property: z.enum(["position", "rotation", "scale", "target", "fov"]), time: z.number(), value: z.array(z.number()).min(1).max(3) })).max(800).optional(),
+}).passthrough();
 
 export const toolNames = [
     "site_navigate",
@@ -23,6 +37,9 @@ export const toolNames = [
     "canvas_create_config_node",
     "canvas_create_image_prompt_flow",
     "canvas_create_generation_flow",
+    "canvas_create_director_scene",
+    "canvas_update_director_scene",
+    "canvas_export_director_prompt",
     "canvas_generate_text",
     "canvas_generate_image",
     "canvas_generate_video",
@@ -107,6 +124,9 @@ export const toolInputSchemas = {
     canvas_create_config_node: z.object({ prompt: z.string().optional(), mode: generationModeSchema.optional(), title: z.string().optional(), x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional(), autoRun: z.boolean().optional() }).merge(generationOptionsSchema),
     canvas_create_image_prompt_flow: z.object({ prompt: z.string(), x: z.number().optional(), y: z.number().optional(), autoRun: z.boolean().optional() }).merge(generationOptionsSchema),
     canvas_create_generation_flow: generationFlowSchema.extend({ mode: generationModeSchema.optional(), autoRun: z.boolean().optional() }).merge(generationOptionsSchema),
+    canvas_create_director_scene: z.object({ scene: directorSceneSchema, title: z.string().optional(), x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional() }),
+    canvas_update_director_scene: z.object({ nodeId: z.string(), scene: directorSceneSchema, replace: z.boolean().optional(), title: z.string().optional() }),
+    canvas_export_director_prompt: z.object({ nodeId: z.string(), title: z.string().optional(), x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional() }),
     canvas_generate_text: generationFlowSchema.merge(generationOptionsSchema),
     canvas_generate_image: generationFlowSchema.merge(generationOptionsSchema),
     canvas_generate_video: generationFlowSchema.merge(generationOptionsSchema),
@@ -140,13 +160,16 @@ export const toolDescriptions: Record<ToolName, string> = {
     canvas_get_node: "按节点 ID 读取单个节点；文本节点会返回完整可编辑内容。先用 canvas_get_state 定位节点，再用本工具读取正文后进行润色、扩写、缩写或迭代。",
     canvas_export_snapshot: "导出当前画布快照，用于理解布局。",
     canvas_apply_ops: "批量操作当前网页画布。ops 支持 add_node、update_node、delete_node、delete_connections、connect_nodes、set_viewport、select_nodes、run_generation。",
-    canvas_create_node: "创建任意类型节点：text、image、config、video、audio。适合创建占位图、媒体占位、配置节点或自定义 metadata 节点。",
+    canvas_create_node: "创建任意类型节点：text、image、config、video、audio、director。普通导演台任务优先使用专用的 canvas_create_director_scene。",
     canvas_create_attachment_nodes: "把当前对话中用户上传的图片附件创建成真实画布图片节点。attachmentIds 使用本轮附件清单中的 ID；返回的节点 ID 可传给 canvas_create_generation_flow.referenceNodeIds 作为生成参考图。",
     canvas_create_text_node: "在当前画布创建单个文本节点。",
     canvas_create_text_nodes: "批量创建文本节点，适合生成标题、段落、脚本、说明等内容块。",
     canvas_create_config_node: "创建生成配置节点，可指定 text/image/video/audio 模式和生成参数，可选择立即触发生成。",
     canvas_create_image_prompt_flow: "创建提示词文本节点和图片生成配置节点，并自动连线，可选择立即触发生图。",
     canvas_create_generation_flow: "创建通用生成流程：提示词文本节点、生成配置节点、参考节点连线，可用于文案、生图、视频或音频。",
+    canvas_create_director_scene: "创建一个可编辑的 3D 导演台节点。scene 可定义环境、人物/道具、相机、镜头段和关键帧；对象与相机 ID 应稳定，镜头 cameraId 和关键帧 targetId 必须引用这些 ID。",
+    canvas_update_director_scene: "原地更新现有导演台节点。先读取节点中的 director 场景；默认只替换 scene 中提供的字段，replace=true 才整体替换。不要为局部迭代创建重复导演台。",
+    canvas_export_director_prompt: "读取指定导演台节点，把空间调度、镜头段、运镜和关键帧编译成 Seedance 运镜提示词文本节点，并自动连线。",
     canvas_generate_text: "创建通用文本生成流程并立即触发生成。",
     canvas_generate_image: "创建通用图片生成流程并立即触发生成。",
     canvas_generate_video: "创建通用视频生成流程并立即触发生成。",

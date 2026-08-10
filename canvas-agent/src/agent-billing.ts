@@ -15,22 +15,22 @@ export class AgentBillingError extends Error {
     }
 }
 
-export function reserveAgentTurn(cookie: string, input: { turnId: string; projectId: string; threadId: string; model: string }) {
-    return billingRequest(cookie, "/agent/turns/reserve", { method: "POST", body: JSON.stringify(input) }, 2);
+export function reserveAgentTurn(cookie: string, workspaceId: string, input: { turnId: string; projectId: string; threadId: string; model: string }) {
+    return billingRequest(cookie, workspaceId, "/agent/turns/reserve", { method: "POST", body: JSON.stringify(input) }, 2);
 }
 
-export function settleAgentTurn(cookie: string, turnId: string, usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number; total_tokens: number }) {
-    return billingRequest(cookie, `/agent/turns/${encodeURIComponent(turnId)}/settle`, {
+export function settleAgentTurn(cookie: string, workspaceId: string, turnId: string, usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number; total_tokens: number }) {
+    return billingRequest(cookie, workspaceId, `/agent/turns/${encodeURIComponent(turnId)}/settle`, {
         method: "POST",
         body: JSON.stringify({ inputTokens: usage.input_tokens, cachedInputTokens: usage.cached_input_tokens, outputTokens: usage.output_tokens, totalTokens: usage.total_tokens }),
     }, 3);
 }
 
-export function releaseAgentTurn(cookie: string, turnId: string, error: string) {
-    return billingRequest(cookie, `/agent/turns/${encodeURIComponent(turnId)}/release`, { method: "POST", body: JSON.stringify({ error: error.slice(0, 1_000) }) }, 3);
+export function releaseAgentTurn(cookie: string, workspaceId: string, turnId: string, error: string) {
+    return billingRequest(cookie, workspaceId, `/agent/turns/${encodeURIComponent(turnId)}/release`, { method: "POST", body: JSON.stringify({ error: error.slice(0, 1_000) }) }, 3);
 }
 
-async function billingRequest(cookie: string, path: string, init: RequestInit, attempts: number) {
+async function billingRequest(cookie: string, workspaceId: string, path: string, init: RequestInit, attempts: number) {
     let lastError: unknown;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
         const controller = new AbortController();
@@ -42,6 +42,7 @@ async function billingRequest(cookie: string, path: string, init: RequestInit, a
                     accept: "application/json",
                     "content-type": "application/json",
                     cookie,
+                    ...(workspaceId ? { "x-workspace-id": workspaceId } : {}),
                     "x-canvas-agent-secret": internalSecret(),
                     ...init.headers,
                 },

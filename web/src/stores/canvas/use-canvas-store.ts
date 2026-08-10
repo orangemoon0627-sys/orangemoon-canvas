@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { localForageStorage } from "@/lib/localforage-storage";
 import { bindAccountMediaOwner } from "@/services/account-media";
-import { fetchAndMergeCanvasProjects, normalizeLegacyProjectMedia, removeCanvasProjectFromCloud, uploadCanvasProject } from "@/services/canvas-cloud-sync";
+import { fetchAndMergeCanvasProjects, fetchCanvasProjectFromCloud, normalizeLegacyProjectMedia, removeCanvasProjectFromCloud, uploadCanvasProject } from "@/services/canvas-cloud-sync";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
 
 export type CanvasProject = {
@@ -31,7 +31,8 @@ type CanvasStore = {
     syncError: string;
     projects: CanvasProject[];
     deletedProjects: DeletedCanvasProject[];
-    bindOwner: (userId: string) => Promise<void>;
+    workspaceCache: Record<string, { projects: CanvasProject[]; deletedProjects: DeletedCanvasProject[] }>;
+    bindOwner: (scopeId: string, legacyOwnerId?: string) => Promise<void>;
     createProject: (title?: string) => string;
     importProject: (project: Partial<CanvasProject>) => string;
     openProject: (id: string) => CanvasProject | null;
@@ -39,11 +40,15 @@ type CanvasStore = {
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[]) => void;
     updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
+    refreshProject: (id: string) => Promise<boolean>;
 };
+
+export const CANVAS_REMOTE_UPDATE_EVENT = "orangemoon:canvas-remote-update";
+export type CanvasRemoteUpdateDetail = { projectId: string; project?: CanvasProject; deletedProject?: DeletedCanvasProject };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
 const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
-type PersistedCanvasState = Pick<CanvasStore, "ownerId" | "projects" | "deletedProjects">;
+type PersistedCanvasState = Pick<CanvasStore, "ownerId" | "projects" | "deletedProjects" | "workspaceCache">;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
 const cloudTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -58,12 +63,13 @@ const canvasStorage: PersistStorage<CanvasStore> = {
         state.ownerId ??= null;
         state.projects ??= [];
         state.deletedProjects ??= [];
+        state.workspaceCache ??= {};
         queuedPersistState = state as PersistedCanvasState;
         return parsed;
     },
     setItem: (name, value) => {
         const nextState = value.state as PersistedCanvasState;
-        if (queuedPersistState?.ownerId === nextState.ownerId && queuedPersistState.projects === nextState.projects && queuedPersistState.deletedProjects === nextState.deletedProjects) return;
+        if (queuedPersistState?.ownerId === nextState.ownerId && queuedPersistState.projects === nextState.projects && queuedPersistState.deletedProjects === nextState.deletedProjects && queuedPersistState.workspaceCache === nextState.workspaceCache) return;
         queuedPersistState = nextState;
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => {
@@ -83,23 +89,27 @@ export const useCanvasStore = create<CanvasStore>()(
             syncError: "",
             projects: [],
             deletedProjects: [],
-            bindOwner: async (userId) => {
+            workspaceCache: {},
+            bindOwner: async (scopeId, legacyOwnerId) => {
                 await waitForHydration();
-                bindAccountMediaOwner(userId);
+                bindAccountMediaOwner(scopeId);
                 clearCloudTimers();
                 const previous = get();
-                const canUseLocal = previous.ownerId === null || previous.ownerId === userId;
-                const localProjects = canUseLocal ? await Promise.all(previous.projects.map(normalizeLegacyProjectMedia)) : [];
-                const localDeletedProjects = canUseLocal ? previous.deletedProjects : [];
-                set({ ownerId: userId, projects: localProjects, deletedProjects: localDeletedProjects, syncing: true, syncError: "" });
+                const workspaceCache = { ...previous.workspaceCache };
+                if (previous.ownerId) workspaceCache[previous.ownerId] = { projects: previous.projects, deletedProjects: previous.deletedProjects };
+                const legacy = previous.ownerId === null || previous.ownerId === legacyOwnerId ? { projects: previous.projects, deletedProjects: previous.deletedProjects } : undefined;
+                const cached = previous.ownerId === scopeId ? { projects: previous.projects, deletedProjects: previous.deletedProjects } : workspaceCache[scopeId] || legacy;
+                const localProjects = await Promise.all((cached?.projects || []).map(normalizeLegacyProjectMedia));
+                const localDeletedProjects = cached?.deletedProjects || [];
+                set({ ownerId: scopeId, workspaceCache, projects: localProjects, deletedProjects: localDeletedProjects, syncing: true, syncError: "" });
                 try {
                     const merged = await fetchAndMergeCanvasProjects(localProjects, localDeletedProjects);
-                    if (get().ownerId !== userId) return;
+                    if (get().ownerId !== scopeId) return;
                     set({ projects: merged.projects, deletedProjects: merged.deletedProjects, syncing: false });
-                    merged.uploadProjects.forEach((project) => scheduleCloudUpsert(userId, project, 0));
-                    merged.uploadDeletions.forEach((project) => queueCloudDelete(userId, project));
+                    merged.uploadProjects.forEach((project) => scheduleCloudUpsert(scopeId, project, 0));
+                    merged.uploadDeletions.forEach((project) => queueCloudDelete(scopeId, project));
                 } catch (error) {
-                    if (get().ownerId === userId) set({ syncing: false, syncError: errorMessage(error, "画布云同步失败") });
+                    if (get().ownerId === scopeId) set({ syncing: false, syncError: errorMessage(error, "画布云同步失败") });
                 }
             },
             createProject: (title = "未命名画布") => {
@@ -182,11 +192,39 @@ export const useCanvasStore = create<CanvasStore>()(
                 const ownerId = get().ownerId;
                 if (ownerId && updated) scheduleCloudUpsert(ownerId, updated);
             },
+            refreshProject: async (id) => {
+                const ownerId = get().ownerId;
+                if (!ownerId || projectHasPending(ownerId, id)) return false;
+                try {
+                    const remote = await fetchCanvasProjectFromCloud(id);
+                    if (get().ownerId !== ownerId || projectHasPending(ownerId, id)) return false;
+                    set({ syncError: "" });
+                    const local = get().projects.find((project) => project.id === id);
+                    if (remote.deletedProject) {
+                        if (!local || Date.parse(remote.deletedProject.deletedAt) < Date.parse(local.updatedAt)) return false;
+                        set((state) => ({ projects: state.projects.filter((project) => project.id !== id), deletedProjects: [...state.deletedProjects.filter((project) => project.id !== id), remote.deletedProject!] }));
+                        dispatchRemoteUpdate({ projectId: id, deletedProject: remote.deletedProject });
+                        return true;
+                    }
+                    if (!remote.project || (local && Date.parse(remote.project.updatedAt) <= Date.parse(local.updatedAt))) return false;
+                    set((state) => ({ projects: [remote.project!, ...state.projects.filter((project) => project.id !== id)], deletedProjects: state.deletedProjects.filter((project) => project.id !== id), syncError: "" }));
+                    dispatchRemoteUpdate({ projectId: id, project: remote.project });
+                    return true;
+                } catch (error) {
+                    if (get().ownerId === ownerId) set({ syncError: errorMessage(error, "团队画布刷新失败") });
+                    return false;
+                }
+            },
         }),
         {
             name: CANVAS_STORE_KEY,
             storage: canvasStorage,
-            partialize: (state) => ({ ownerId: state.ownerId, projects: state.projects, deletedProjects: state.deletedProjects }) as StorageValue<CanvasStore>["state"],
+            partialize: (state) => ({
+                ownerId: state.ownerId,
+                projects: state.projects,
+                deletedProjects: state.deletedProjects,
+                workspaceCache: state.ownerId ? { ...state.workspaceCache, [state.ownerId]: { projects: state.projects, deletedProjects: state.deletedProjects } } : state.workspaceCache,
+            }) as StorageValue<CanvasStore>["state"],
             onRehydrateStorage: () => () => {
                 useCanvasStore.setState({ hydrated: true });
             },
@@ -218,6 +256,7 @@ function scheduleCloudUpsert(ownerId: string, project: CanvasProject, delay = 80
             const local = useCanvasStore.getState().projects.find((item) => item.id === project.id);
             if (local && Date.parse(remote.updatedAt) > Date.parse(local.updatedAt)) {
                 useCanvasStore.setState((state) => ({ projects: state.projects.map((item) => item.id === remote.id ? remote : item) }));
+                dispatchRemoteUpdate({ projectId: remote.id, project: remote });
             }
         });
     }, delay));
@@ -267,6 +306,15 @@ function refreshCloudPending(ownerId: string) {
     const prefix = `${ownerId}:`;
     const pending = [...cloudTimers.keys(), ...cloudQueue.keys()].some((key) => key.startsWith(prefix));
     useCanvasStore.setState({ syncing: pending });
+}
+
+function projectHasPending(ownerId: string, projectId: string) {
+    const key = `${ownerId}:${projectId}`;
+    return cloudTimers.has(key) || cloudQueue.has(key);
+}
+
+function dispatchRemoteUpdate(detail: CanvasRemoteUpdateDetail) {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent<CanvasRemoteUpdateDetail>(CANVAS_REMOTE_UPDATE_EVENT, { detail }));
 }
 
 function errorMessage(error: unknown, fallback: string) {

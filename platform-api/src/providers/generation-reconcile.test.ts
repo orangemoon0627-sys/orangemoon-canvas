@@ -8,6 +8,9 @@ import type { LedgerService } from "../wallet/ledger.service";
 import { GenerationService } from "./generation.service";
 import type { PricingService } from "./pricing.service";
 import type { ProviderUpstreamService } from "./provider-upstream.service";
+import type { WorkspaceService } from "../workspaces/workspace.service";
+
+const workspaces = {} as WorkspaceService;
 
 function submittedVideoJob(): GenerationJob {
     const now = new Date("2026-07-31T00:00:00.000Z");
@@ -68,7 +71,7 @@ test("后台对账在供应商成功后结算积分并登记视频资产", async
     const upstream = {
         pollVideo: async () => ({ state: "success", progress: "100%", result_url: "https://cdn.example.com/result.mp4" }),
     } as unknown as ProviderUpstreamService;
-    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream);
+    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces);
 
     await service.reconcileSubmittedVideos();
 
@@ -97,7 +100,7 @@ test("后台查询暂时失败时保留预授权，不结算也不退款", async
             throw new Error("temporary upstream timeout");
         },
     } as unknown as ProviderUpstreamService;
-    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream);
+    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces);
 
     await service.reconcileSubmittedVideos();
 
@@ -120,7 +123,7 @@ test("视频资产暂时无法登记时保留任务待重试，不提前扣费",
     const upstream = {
         pollVideo: async () => ({ state: "success", result_url: "https://cdn.example.com/result.mp4" }),
     } as unknown as ProviderUpstreamService;
-    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream);
+    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces);
 
     await service.reconcileSubmittedVideos();
 

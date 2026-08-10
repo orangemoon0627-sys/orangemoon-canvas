@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { Algorithm, hash, verify } from "@node-rs/argon2";
-import { Prisma, type User } from "@prisma/client";
+import { Prisma, WorkspaceKind, WorkspaceRole, type User } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 
 import { allowFirstUserAdmin, sessionDays } from "../common/environment";
@@ -32,6 +32,16 @@ export class AuthService {
                         wallet: { create: {} },
                     },
                 });
+                const personalWorkspace = await tx.workspace.create({
+                    data: {
+                        publicId: `personal_${created.id}`,
+                        name: `${created.displayName}的个人空间`,
+                        kind: WorkspaceKind.PERSONAL,
+                        createdById: created.id,
+                        personalForUserId: created.id,
+                    },
+                });
+                await tx.workspaceMember.create({ data: { workspaceId: personalWorkspace.id, userId: created.id, role: WorkspaceRole.OWNER } });
                 await tx.auditLog.create({ data: { actorId: created.id, action: "auth.register", targetType: "User", targetId: created.id, details: { role }, ipHash: hashRequestIp(request) } });
                 return created;
             }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

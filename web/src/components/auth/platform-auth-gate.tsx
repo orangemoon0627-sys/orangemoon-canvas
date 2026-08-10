@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/use-auth-store";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { bindAccountMediaOwner } from "@/services/account-media";
+import { useWorkspaceStore } from "@/stores/use-workspace-store";
 
 type AuthForm = { email: string; password: string; displayName?: string; confirmPassword?: string };
 
@@ -38,18 +39,31 @@ export function PlatformAuthGate({ children }: { children: ReactNode }) {
 function AccountDataGate({ userId, children }: { userId: string; children: ReactNode }) {
     const bindAssets = useAssetStore((state) => state.bindOwner);
     const bindCanvas = useCanvasStore((state) => state.bindOwner);
+    const initializeWorkspaces = useWorkspaceStore((state) => state.initialize);
+    const workspaces = useWorkspaceStore((state) => state.workspaces);
+    const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+    const workspaceError = useWorkspaceStore((state) => state.error);
     const [ready, setReady] = useState(false);
 
     useEffect(() => {
+        void initializeWorkspaces(userId);
+    }, [initializeWorkspaces, userId]);
+
+    useEffect(() => {
+        const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
+        if (!workspace) return;
         let active = true;
         setReady(false);
-        bindAccountMediaOwner(userId);
-        void Promise.all([bindAssets(userId), bindCanvas(userId)]).finally(() => {
+        const scopeId = `${userId}:${workspace.id}`;
+        const legacyOwnerId = workspace.kind === "PERSONAL" ? userId : undefined;
+        bindAccountMediaOwner(scopeId);
+        void Promise.all([bindAssets(scopeId, legacyOwnerId), bindCanvas(scopeId, legacyOwnerId)]).finally(() => {
             if (active) setReady(true);
         });
         return () => { active = false; };
-    }, [bindAssets, bindCanvas, userId]);
+    }, [activeWorkspaceId, bindAssets, bindCanvas, userId, workspaces]);
 
+    if (workspaceError) return <div className="flex h-dvh items-center justify-center bg-background px-6 text-sm text-red-600">{workspaceError}</div>;
     if (!ready) return <div className="flex h-dvh items-center justify-center bg-background"><Spin size="large" /></div>;
     return children;
 }
