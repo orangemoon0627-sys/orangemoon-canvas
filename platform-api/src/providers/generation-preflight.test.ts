@@ -5,7 +5,7 @@ import { BadGatewayException, BadRequestException, ServiceUnavailableException }
 
 import type { PrismaService } from "../prisma/prisma.service";
 import type { LedgerService } from "../wallet/ledger.service";
-import { GenerationService, providerVideoTaskId, publicVideoGenerationError, rewriteGeneratedImageUrls } from "./generation.service";
+import { GenerationService, providerVideoTaskId, publicVideoGenerationError, rewriteGeneratedImageUrls, videoResultUrl } from "./generation.service";
 import type { PricingService } from "./pricing.service";
 import type { ProviderUpstreamService } from "./provider-upstream.service";
 import type { WorkspaceService } from "../workspaces/workspace.service";
@@ -104,4 +104,10 @@ test("视频创建兼容 MetaJing task_id 响应", () => {
     assert.equal(providerVideoTaskId({ task_id: "task-metajing-1" }), "task-metajing-1");
     assert.equal(providerVideoTaskId({ data: { task_id: "task-metajing-2" } }), "task-metajing-2");
     assert.equal(providerVideoTaskId({ id: "task-openai-style" }), "task-openai-style");
+});
+
+test("视频结果兼容 MetaJing succeeded 的 data 数组", () => {
+    assert.equal(videoResultUrl({ status: "succeeded", data: [{ url: "https://metajing.cn/video-media/result.mp4", mp4_url: "https://metajing.cn/video-media/result.mp4" }] }), "https://metajing.cn/video-media/result.mp4");
+    assert.equal(videoResultUrl({ status: "succeeded", data: { mp4_url: "https://metajing.cn/video-media/data-object.mp4" } }), "https://metajing.cn/video-media/data-object.mp4");
+    assert.equal(videoResultUrl({ state: "success", result_url: "https://cdn.example.com/result.mp4" }), "https://cdn.example.com/result.mp4");
 });

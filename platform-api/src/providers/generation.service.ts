@@ -124,10 +124,11 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         const result = asRecord(await this.upstream.pollVideo(job.providerTaskId));
         const state = String(result.state || result.status || "processing").toLowerCase();
         const withPublicId = { ...result, id: job.publicId };
-        if (videoResultUrl(result)) {
-            await this.registerVideoAsset(job, videoResultUrl(result));
+        const outputUrl = videoResultUrl(result);
+        if (outputUrl) {
+            await this.registerVideoAsset(job, outputUrl);
             await this.settle(job, job.reservedMilliCredits);
-            return withPublicId;
+            return { ...withPublicId, state: state || "succeeded", is_final: true, result_url: outputUrl };
         }
         if (videoFailed(result, state)) {
             await this.release(job, new Error(readResultError(result) || "Seedance 2.0 视频生成失败"));
@@ -331,9 +332,16 @@ export function providerVideoTaskId(result: Record<string, unknown>) {
 }
 function publicVideoTaskResult(result: Record<string, unknown>, publicId: string) {
     const { id: _id, task_id: _taskId, taskId: _camelTaskId, ...publicResult } = result;
-    return { ...publicResult, id: publicId };
+    const resultUrl = videoResultUrl(result);
+    return { ...publicResult, id: publicId, ...(resultUrl ? { result_url: resultUrl, is_final: true } : {}) };
 }
-function videoResultUrl(result: Record<string, unknown>) { return String(result.result_url || result.video_url || "").trim(); }
+export function videoResultUrl(result: Record<string, unknown>) {
+    const nestedData = Array.isArray(result.data) ? result.data.map(asRecord) : result.data && typeof result.data === "object" ? [asRecord(result.data)] : [];
+    const nestedResult = result.result && typeof result.result === "object" ? [asRecord(result.result)] : [];
+    return [result.result_url, result.video_url, result.mp4_url, result.url, ...nestedData.flatMap((item) => [item.result_url, item.video_url, item.mp4_url, item.url]), ...nestedResult.flatMap((item) => [item.result_url, item.video_url, item.mp4_url, item.url])]
+        .find((value): value is string => typeof value === "string" && /^https?:\/\//i.test(value.trim()))
+        ?.trim() || "";
+}
 function videoFailed(result: Record<string, unknown>, state: string) { return ["failed", "failure", "cancelled", "canceled", "expired"].includes(state) || (Boolean(result.is_final) && !videoResultUrl(result)); }
 function readResultError(result: Record<string, unknown>) { const error = result.error; return typeof error === "string" ? error : error && typeof error === "object" ? String((error as Record<string, unknown>).message || "") : ""; }
 function imageMimeType(format: string) { return format === "jpg" ? "image/jpeg" : `image/${format || "png"}`; }

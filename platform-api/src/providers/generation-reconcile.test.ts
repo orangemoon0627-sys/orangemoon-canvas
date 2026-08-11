@@ -69,7 +69,7 @@ test("后台对账在供应商成功后结算积分并登记视频资产", async
         },
     } as unknown as LedgerService;
     const upstream = {
-        pollVideo: async () => ({ state: "success", progress: "100%", result_url: "https://cdn.example.com/result.mp4" }),
+        pollVideo: async () => ({ status: "succeeded", data: [{ url: "https://cdn.example.com/result.mp4", mp4_url: "https://cdn.example.com/result.mp4" }] }),
     } as unknown as ProviderUpstreamService;
     const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces);
 

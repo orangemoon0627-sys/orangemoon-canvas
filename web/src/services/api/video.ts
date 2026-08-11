@@ -31,6 +31,9 @@ type MetaJingTask = {
     status?: string;
     is_final?: boolean;
     result_url?: string;
+    video_url?: string;
+    mp4_url?: string;
+    data?: Array<{ url?: string; video_url?: string; mp4_url?: string; result_url?: string }> | { url?: string; video_url?: string; mp4_url?: string; result_url?: string };
     error?: string | { message?: string } | null;
     price_usd?: number;
 };
@@ -223,7 +226,8 @@ async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, 
 async function pollMetaJingVideoTask(task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
         const state = await orangeMoonGet<MetaJingTask>(`/metajing/v1/video/generations/${encodeURIComponent(task.id)}`, { signal: options?.signal });
-        if (state.result_url) return { status: "completed", result: await videoResultFromUrl(state.result_url, options) };
+        const resultUrl = metaJingVideoResultUrl(state);
+        if (resultUrl) return { status: "completed", result: await videoResultFromUrl(resultUrl, options) };
         const normalizedState = String(state.state || "").toLowerCase();
         if (["failed", "failure", "cancelled", "canceled", "expired"].includes(normalizedState) || state.is_final) {
             return { status: "failed", error: readApiErrorMessage(typeof state.error === "string" ? state.error : state.error?.message) || state.status || "Seedance 2.0 视频生成失败" };
@@ -232,6 +236,13 @@ async function pollMetaJingVideoTask(task: VideoGenerationTask, options?: Reques
     } catch (error) {
         throw new Error(readAxiosError(error, "Seedance 2.0 任务查询失败"));
     }
+}
+
+function metaJingVideoResultUrl(state: MetaJingTask) {
+    const data = Array.isArray(state.data) ? state.data : state.data ? [state.data] : [];
+    return [state.result_url, state.video_url, state.mp4_url, ...data.flatMap((item) => [item.result_url, item.video_url, item.mp4_url, item.url])]
+        .find((value): value is string => typeof value === "string" && /^https?:\/\//i.test(value.trim()))
+        ?.trim() || "";
 }
 
 function assertOrangeMoonReferences(model: NonNullable<ReturnType<typeof getOrangeMoonVideoModel>>, references: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
