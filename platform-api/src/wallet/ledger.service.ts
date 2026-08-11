@@ -15,11 +15,22 @@ export class LedgerService {
             try {
                 return await this.prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 });
             } catch (error) {
-                if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034" && attempt < 2) continue;
+                if (this.isRetryableTransactionConflict(error)) {
+                    if (attempt < 2) continue;
+                    throw new ConflictException("账务事务冲突，请重试");
+                }
                 throw error;
             }
         }
         throw new ConflictException("账务事务冲突，请重试");
+    }
+
+    private isRetryableTransactionConflict(error: unknown) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+        if (error.code === "P2034") return true;
+        if (error.code !== "P2010") return false;
+        const databaseCode = error.meta?.code;
+        return databaseCode === "40001" || databaseCode === "40P01";
     }
 
     async reserveInTransaction(tx: TransactionClient, input: { userId: string; amountMilli: bigint; idempotencyKey: string; description: string; metadata?: Prisma.InputJsonValue; transactionType?: LedgerTransactionType }) {
