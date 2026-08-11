@@ -111,14 +111,17 @@ export default function ImagePage() {
     }, []);
 
     const addReferences = async (files?: FileList | null) => {
-        const imageFiles = Array.from(files || []).filter((file) => file.type.startsWith("image/"));
+        const available = Math.max(0, 4 - references.length);
+        const selected = Array.from(files || []).filter((file) => file.type.startsWith("image/"));
+        const imageFiles = selected.slice(0, available);
+        if (selected.length > available) message.warning("Image 2 最多使用 4 张参考图");
         const nextReferences = await Promise.all(
             imageFiles.map(async (file) => {
                 const image = await uploadImage(file);
-                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType };
             }),
         );
-        setReferences((value) => [...value, ...nextReferences]);
+        setReferences((value) => [...value, ...nextReferences].slice(0, 4));
     };
 
     const addReferencesFromClipboard = async () => {
@@ -130,12 +133,13 @@ export default function ImagePage() {
                 return;
             }
             const nextReferences = await Promise.all(
-                blobs.map(async (blob, index) => {
+                blobs.slice(0, Math.max(0, 4 - references.length)).map(async (blob, index) => {
                     const image = await uploadImage(blob);
-                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType };
                 }),
             );
-            setReferences((value) => [...value, ...nextReferences]);
+            if (blobs.length > nextReferences.length) message.warning("Image 2 最多使用 4 张参考图");
+            setReferences((value) => [...value, ...nextReferences].slice(0, 4));
             message.success(`已读取 ${nextReferences.length} 张参考图`);
         } catch {
             message.error("剪切板里没有可读取的图片");
@@ -235,8 +239,12 @@ export default function ImagePage() {
     };
 
     const addResultToReferences = async (image: GeneratedImage, index: number) => {
+        if (references.length >= 4) {
+            message.warning("Image 2 最多使用 4 张参考图");
+            return;
+        }
         const stored = await uploadImage(image.dataUrl);
-        setReferences((value) => [...value, { id: nanoid(), name: `result-${index + 1}.png`, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }]);
+        setReferences((value) => [...value, { id: nanoid(), name: `result-${index + 1}.png`, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType }].slice(0, 4));
         message.success("已加入参考图");
     };
 
@@ -258,8 +266,13 @@ export default function ImagePage() {
         if (payload.kind === "text") {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
+            if (references.length >= 4) {
+                message.warning("Image 2 最多使用 4 张参考图");
+                setAssetPickerOpen(false);
+                return;
+            }
             const stored = await uploadImage(payload.dataUrl);
-            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }]);
+            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType }].slice(0, 4));
         } else {
             message.warning("生图工作台只能使用文本或图片资产");
         }

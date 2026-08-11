@@ -18,6 +18,7 @@ const imageRequestSchema = z
         prompt: z.string().trim().min(1).max(4000),
         size: z.string().trim().default("1024x1024"),
         n: z.coerce.number().int().min(1).max(4).default(1),
+        images: z.array(z.string().trim()).default([]),
         image: z.string().trim().optional(),
         response_format: z.enum(["url", "b64_json"]).default("url"),
         quality: z.string().trim().max(64).optional(),
@@ -26,8 +27,13 @@ const imageRequestSchema = z
     .strict()
     .superRefine((input, context) => {
         if (!validImageSize(input.size)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["size"], message: "图片尺寸不符合 Image 2 限制" });
-        if (input.image && !validMediaSource(input.image, "image")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["image"], message: "参考图必须是 data:image 或 http(s) 地址" });
-    });
+        const images = [...input.images, ...(input.image ? [input.image] : [])];
+        if (images.length > 4) context.addIssue({ code: z.ZodIssueCode.custom, path: ["images"], message: "Image 2 最多支持 4 张参考图" });
+        images.forEach((value, index) => {
+            if (!validMediaSource(value, "image")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["images", index], message: "参考图必须是 data:image 或 http(s) 地址" });
+        });
+    })
+    .transform((input) => ({ ...input, images: Array.from(new Set([...input.images, ...(input.image ? [input.image] : [])])), image: undefined }));
 
 const videoRequestSchema = z
     .object({
@@ -46,7 +52,7 @@ const videoRequestSchema = z
     .superRefine((input, context) => {
         const model = findProviderModel(input.model);
         if (!model || model.provider !== "metajing" || model.capability !== "video" || !isExclusiveVideoModelId(input.model)) {
-            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "该视频模型已停用，橙月画布只支持 Seedance 2.0 Fast 和 Seedance 2.0" });
+            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "该视频模型已停用，橙月画布只支持已登记的四个 Seedance 2.0 独家通道" });
             return;
         }
         if (!resolveProviderVideoResolution(model, input.resolution)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["resolution"], message: `该模型只支持 ${(model.resolutions || []).join("、")}` });
@@ -65,12 +71,15 @@ const videoRequestSchema = z
         if (input.audios.length > limits.audios) context.addIssue({ code: z.ZodIssueCode.custom, path: ["audios"], message: limits.audios ? `该模型最多支持 ${limits.audios} 段参考音频` : "该模型不支持参考音频" });
         input.images.forEach((value, index) => {
             if (!validMediaSource(value, "image")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["images", index], message: "参考图必须是 data:image 或 http(s) 地址" });
+            if (dataUrlBytes(value) > limits.imageMaxBytes) context.addIssue({ code: z.ZodIssueCode.custom, path: ["images", index], message: `第 ${index + 1} 个参考图超过 ${formatMegabytes(limits.imageMaxBytes)}MB 上限` });
         });
         input.videos.forEach((value, index) => {
             if (!validMediaSource(value, "video")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["videos", index], message: "参考视频必须是 data:video 或 http(s) 地址" });
+            if (dataUrlBytes(value) > limits.videoMaxBytes) context.addIssue({ code: z.ZodIssueCode.custom, path: ["videos", index], message: `第 ${index + 1} 个参考视频超过 ${formatMegabytes(limits.videoMaxBytes)}MB 上限` });
         });
         input.audios.forEach((value, index) => {
             if (!validMediaSource(value, "audio")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["audios", index], message: "参考音频必须是 data:audio 或 http(s) 地址" });
+            if (dataUrlBytes(value) > limits.audioMaxBytes) context.addIssue({ code: z.ZodIssueCode.custom, path: ["audios", index], message: `第 ${index + 1} 个参考音频超过 ${formatMegabytes(limits.audioMaxBytes)}MB 上限` });
         });
     });
 
@@ -98,7 +107,7 @@ export function registerProviderGateway(app: Express) {
                 creditToCny: 1,
             },
             providers: status,
-            image: { maxCount: 4, maxReferences: 1, sizes: METAJING_IMAGE_SIZES },
+            image: { maxCount: 4, maxReferences: 4, sizes: METAJING_IMAGE_SIZES },
             models: PUBLIC_PROVIDER_MODELS.map((model) => {
                 return {
                     ...model,
@@ -221,6 +230,17 @@ function validImageSize(value: string) {
 
 function validMediaSource(value: string, kind: "image" | "video" | "audio") {
     return value.startsWith(`data:${kind}/`) || /^https?:\/\//i.test(value);
+}
+
+function dataUrlBytes(value: string) {
+    if (!value.startsWith("data:")) return 0;
+    const body = value.split(",", 2)[1] || "";
+    const padding = body.endsWith("==") ? 2 : body.endsWith("=") ? 1 : 0;
+    return Math.max(0, Math.floor((body.length * 3) / 4) - padding);
+}
+
+function formatMegabytes(bytes: number) {
+    return Number((bytes / 1_000_000).toFixed(1));
 }
 
 function providerHeaders(apiKey: string, extra?: Record<string, string>) {

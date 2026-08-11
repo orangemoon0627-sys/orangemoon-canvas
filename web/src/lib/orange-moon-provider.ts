@@ -3,6 +3,8 @@ export const ORANGE_MOON_CHANNEL_ID = "orangemoon-official";
 export const ORANGE_MOON_GATEWAY_URL = "canvas-agent://providers";
 
 export const ORANGE_MOON_VIDEO_MODEL_IDS = [
+    "431-Seedream-2.0-fast",
+    "431-Seedream-2.0",
     "qy-seedance-2.0-fast",
     "qy-seedance-2.0",
 ] as const;
@@ -23,7 +25,19 @@ export type OrangeMoonVideoModel = {
     allowedDurations?: number[];
     durations: number[];
     aspectRatios: string[];
-    references: { images: number; videos: number; audios: number; imageMaxBytes: number; videoMaxBytes: number; audioMaxBytes: number };
+    references: {
+        images: number;
+        videos: number;
+        audios: number;
+        imageMaxBytes: number;
+        videoMaxBytes: number;
+        audioMaxBytes: number;
+        videoMinItemSeconds?: number;
+        videoMaxItemSeconds?: number;
+        videoMinTotalSeconds?: number;
+        videoMaxTotalSeconds?: number;
+        audioMaxTotalSeconds?: number;
+    };
     price: { unit: "second" | "generation"; usd: number };
 };
 export type OrangeMoonVideoProduct = {
@@ -41,11 +55,40 @@ export type OrangeMoonVideoProduct = {
     references: OrangeMoonVideoModel["references"];
 };
 
-const MB = 1024 * 1024;
-const qyReferences = { images: 9, videos: 3, audios: 3, imageMaxBytes: 12 * MB, videoMaxBytes: 50_000_000, audioMaxBytes: 16 * MB };
+const qyReferences = { images: 9, videos: 3, audios: 3, imageMaxBytes: 15_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 2, videoMaxItemSeconds: 15, videoMinTotalSeconds: 2, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
+const references431 = { images: 4, videos: 3, audios: 1, imageMaxBytes: 30_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
 const qyRatios = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
+const ratios431 = ["16:9", "1:1", "9:16"];
 
 export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
+    {
+        name: "431-Seedream-2.0-fast",
+        label: "Seedance 2.0 Fast（431）",
+        tier: "fast",
+        resolutions: ["480p", "720p"],
+        defaultResolution: "720p",
+        rates: { "480p": 0.136, "720p": 0.189 },
+        minDuration: 5,
+        maxDuration: 14,
+        allowedDurations: [5, 10, 14],
+        durations: [5, 10, 14],
+        aspectRatios: ratios431,
+        references: references431,
+    },
+    {
+        name: "431-Seedream-2.0",
+        label: "Seedance 2.0（431）",
+        tier: "standard",
+        resolutions: ["480p", "720p"],
+        defaultResolution: "720p",
+        rates: { "480p": 0.148, "720p": 0.215 },
+        minDuration: 5,
+        maxDuration: 14,
+        allowedDurations: [5, 10, 14],
+        durations: [5, 10, 14],
+        aspectRatios: ratios431,
+        references: references431,
+    },
     {
         name: "qy-seedance-2.0-fast",
         label: "Seedance 2.0 Fast",
@@ -84,8 +127,7 @@ export const ORANGE_MOON_MODELS: OrangeMoonModel[] = [
 ];
 
 const LEGACY_TO_CURRENT: Record<string, OrangeMoonVideoProductName> = {
-    "431-Seedream-2.0": "qy-seedance-2.0",
-    "Seedance 2.0（431 独家）": "qy-seedance-2.0",
+    "Seedance 2.0（431 独家）": "431-Seedream-2.0",
     "seedance-2.0": "qy-seedance-2.0",
     "seedance-2.0-fast": "qy-seedance-2.0-fast",
     "seedance-2.0-mini": "qy-seedance-2.0-fast",

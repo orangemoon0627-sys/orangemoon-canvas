@@ -1,4 +1,4 @@
-export const PROVIDER_CATALOG_VERSION = "orangemoon-provider-v8-two-exclusive-video";
+export const PROVIDER_CATALOG_VERSION = "orangemoon-provider-v9-four-exclusive-video";
 
 export type ProviderCapability = "image" | "video" | "audio";
 export type ProviderModelVisibility = "public" | "legacy";
@@ -31,18 +31,33 @@ export type ProviderModel = {
     allowedDurations?: number[];
     recommendedDurations?: number[];
     aspectRatios?: string[];
-    references?: { images: number; videos: number; audios: number; imageMaxBytes: number; videoMaxBytes: number; audioMaxBytes: number };
+    references?: {
+        images: number;
+        videos: number;
+        audios: number;
+        imageMaxBytes: number;
+        videoMaxBytes: number;
+        audioMaxBytes: number;
+        videoMinItemSeconds?: number;
+        videoMaxItemSeconds?: number;
+        videoMinTotalSeconds?: number;
+        videoMaxTotalSeconds?: number;
+        audioMaxTotalSeconds?: number;
+    };
 };
 
 export const EXCLUSIVE_VIDEO_MODEL_IDS = [
+    "431-Seedream-2.0-fast",
+    "431-Seedream-2.0",
     "qy-seedance-2.0-fast",
     "qy-seedance-2.0",
 ] as const;
 
 const EXCLUSIVE_VIDEO_MODEL_ID_SET = new Set<string>(EXCLUSIVE_VIDEO_MODEL_IDS);
-const MB = 1024 * 1024;
-const QY_REFERENCES = { images: 9, videos: 3, audios: 3, imageMaxBytes: 12 * MB, videoMaxBytes: 50_000_000, audioMaxBytes: 16 * MB };
+const QY_REFERENCES = { images: 9, videos: 3, audios: 3, imageMaxBytes: 15_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 2, videoMaxItemSeconds: 15, videoMinTotalSeconds: 2, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
+const REF_431 = { images: 4, videos: 3, audios: 1, imageMaxBytes: 30_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
 const QY_RATIOS = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
+const RATIOS_431 = ["16:9", "1:1", "9:16"];
 
 function videoModel(
     id: (typeof EXCLUSIVE_VIDEO_MODEL_IDS)[number],
@@ -80,8 +95,28 @@ export const PROVIDER_MODELS: ProviderModel[] = [
         capability: "image",
         visibility: "public",
         billing: { unit: "image", usd: 0.06 },
-        description: "文生图与单张参考图图生图，支持最长边 3840px，一次最多 4 张",
+        description: "文生图与最多 4 张参考图融合，支持最长边 3840px，一次最多生成 4 张",
     },
+    videoModel("431-Seedream-2.0-fast", "Seedance 2.0 Fast（431）", { "480p": 0.136, "720p": 0.189 }, "720p", REF_431, {
+        tier: "fast",
+        maxPromptChars: 10_000,
+        minDuration: 5,
+        maxDuration: 14,
+        allowedDurations: [5, 10, 14],
+        recommendedDurations: [5, 10, 14],
+        aspectRatios: RATIOS_431,
+        description: "431 Fast 通道，支持 480P/720P、原生声音及最多 4 图/3 视频/1 音频参考",
+    }),
+    videoModel("431-Seedream-2.0", "Seedance 2.0（431）", { "480p": 0.148, "720p": 0.215 }, "720p", REF_431, {
+        tier: "standard",
+        maxPromptChars: 10_000,
+        minDuration: 5,
+        maxDuration: 14,
+        allowedDurations: [5, 10, 14],
+        recommendedDurations: [5, 10, 14],
+        aspectRatios: RATIOS_431,
+        description: "431 标准通道，支持 480P/720P、原生声音及最多 4 图/3 视频/1 音频参考",
+    }),
     videoModel("qy-seedance-2.0-fast", "Seedance 2.0 Fast", { "480p": 1 / 6, "720p": 0.2 }, "720p", QY_REFERENCES, {
         tier: "fast",
         maxPromptChars: 2_500,

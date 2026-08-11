@@ -121,16 +121,16 @@ export default function VideoPage() {
         const selectedFiles = Array.from(files || []);
         const unsupported = selectedFiles.filter((file) => !file.type.startsWith("image/") && !file.type.startsWith("video/") && !isSupportedAudioFile(file));
         if (unsupported.length) message.warning("已忽略不支持的参考资产，请使用图片、mp4/mov 视频或 mp3/wav 音频");
-        const imageFiles = selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= referenceLimits.imageMaxBytes).slice(0, Math.max(0, referenceLimits.images - references.length));
+        const imageFiles = selectedFiles.filter((file) => file.type.startsWith("image/")).slice(0, Math.max(0, referenceLimits.images - references.length));
         const videoFiles = selectedFiles.filter((file) => file.type.startsWith("video/") && file.size <= referenceLimits.videoMaxBytes).slice(0, Math.max(0, referenceLimits.videos - videoReferences.length));
         const audioFiles = selectedFiles.filter((file) => isSupportedAudioFile(file) && file.size <= referenceLimits.audioMaxBytes).slice(0, Math.max(0, referenceLimits.audios - audioReferences.length));
-        if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size > referenceLimits.imageMaxBytes)) message.warning(`已忽略超过 ${Math.round(referenceLimits.imageMaxBytes / 1024 / 1024)}MB 的参考图`);
+        if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size > referenceLimits.imageMaxBytes)) message.info("大尺寸参考图会在生成前自动优化，不会直接提交原始大图");
         if (selectedFiles.some((file) => file.type.startsWith("video/") && file.size > referenceLimits.videoMaxBytes)) message.warning(`已忽略超过 ${Math.round(referenceLimits.videoMaxBytes / 1024 / 1024)}MB 的参考视频`);
         if (selectedFiles.some((file) => isSupportedAudioFile(file) && file.size > referenceLimits.audioMaxBytes)) message.warning(`已忽略超过 ${Math.round(referenceLimits.audioMaxBytes / 1024 / 1024)}MB 的参考音频`);
         const nextReferences = await Promise.all(
             imageFiles.map(async (file) => {
                 const image = await uploadImage(file);
-                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType };
             }),
         );
         const nextVideoReferences = await Promise.all(
@@ -144,7 +144,7 @@ export default function VideoPage() {
             await Promise.all(
                 audioFiles.map(async (file) => {
                     const audio = await uploadMediaFile(file, "audio-reference");
-                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
+                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, bytes: audio.bytes, durationMs: audio.durationMs };
                 }),
             ),
             message.warning,
@@ -165,7 +165,7 @@ export default function VideoPage() {
             const nextReferences = await Promise.all(
                 blobs.slice(0, Math.max(0, referenceLimits.images - references.length)).map(async (blob, index) => {
                     const image = await uploadImage(blob);
-                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType };
                 }),
             );
             setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
@@ -271,7 +271,7 @@ export default function VideoPage() {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
             const stored = await uploadImage(payload.dataUrl);
-            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }].slice(0, referenceLimits.images));
+            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType }].slice(0, referenceLimits.images));
         } else if (payload.kind === "video") {
             setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "video/mp4", url: payload.url, storageKey: payload.storageKey, width: payload.width, height: payload.height }].slice(0, referenceLimits.videos));
         }

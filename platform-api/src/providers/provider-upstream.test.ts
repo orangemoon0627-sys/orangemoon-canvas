@@ -29,8 +29,14 @@ test("未指定分辨率时使用独家模型的默认分辨率", () => {
     assert.equal(request.payload.resolution, "720p");
 });
 
-test("431 和其他旧视频模型都不能进入上游", () => {
-    for (const model of ["431-Seedream-2.0", "mg-seedance2.0 -720p fast", "Seedance 2.0-fast-720p"]) {
+test("431 请求保留真实模型 ID", () => {
+    const request = videoUpstreamRequest({ ...baseInput, model: "431-Seedream-2.0-fast", duration: 14, resolution: "480p" }, "test-key");
+    assert.equal(request.payload.model, "431-Seedream-2.0-fast");
+    assert.equal(request.payload.resolution, "480p");
+});
+
+test("其他旧视频模型不能进入上游", () => {
+    for (const model of ["mg-seedance2.0 -720p fast", "Seedance 2.0-fast-720p"]) {
         assert.throws(
             () => videoUpstreamRequest({ ...baseInput, model, resolution: "720p" }, "test-key"),
             (error: unknown) => error instanceof BadRequestException && /已停用/.test(error.message),

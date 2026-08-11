@@ -310,7 +310,7 @@ function validateIdempotencyKey(value: string) {
 }
 
 function summarizeImage(input: ImageRequest): Prisma.InputJsonValue {
-    return { promptHash: hashText(input.prompt), promptLength: input.prompt.length, size: input.size, count: input.n, hasReference: Boolean(input.image), outputFormat: input.output_format };
+    return { promptHash: hashText(input.prompt), promptLength: input.prompt.length, size: input.size, count: input.n, referenceCount: input.images.length, outputFormat: input.output_format };
 }
 
 function summarizeVideo(input: VideoRequest): Prisma.InputJsonValue {
@@ -342,6 +342,5 @@ export function publicVideoGenerationError(error: unknown, input: Pick<VideoRequ
     const message = error instanceof Error ? error.message : String(error || "");
     if (!/no available channel for model/i.test(message)) return error;
     const selected = findProviderModel(input.model);
-    const fallback = input.model === "qy-seedance-2.0-fast" ? "Seedance 2.0" : "Seedance 2.0 Fast";
-    return new ServiceUnavailableException(`MetaJing 当前没有为「${selected?.label || input.model}」开放生成通道。本次未扣费，预授权已自动退回；请切换到「${fallback}」后重试。`);
+    return new ServiceUnavailableException(`MetaJing 当前没有为「${selected?.label || input.model}」开放生成通道。本次未扣费，预授权已自动退回；请切换到列表中的另一个 Seedance 2.0 通道后重试。`);
 }

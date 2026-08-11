@@ -4,15 +4,17 @@ import test from "node:test";
 import { canonicalOrangeMoonVideoModel, getOrangeMoonModelPublicName, getOrangeMoonVideoModel, ORANGE_MOON_VIDEO_MODEL_IDS, ORANGE_MOON_VIDEO_MODELS, removeOrangeMoonInternalModelPrefix } from "./orange-moon-provider";
 import { normalizeSeedanceDurationForModel } from "./seedance-video";
 
-test("only exposes the two exclusive video APIs and resolves their supported resolutions", () => {
+test("only exposes the four exclusive video APIs and resolves their supported resolutions", () => {
     assert.deepEqual(ORANGE_MOON_VIDEO_MODELS.map((model) => model.name), [...ORANGE_MOON_VIDEO_MODEL_IDS]);
     assert.equal(getOrangeMoonVideoModel("qy-seedance-2.0", "1080")?.resolution, "1080p");
     assert.equal(getOrangeMoonVideoModel("qy-seedance-2.0", "1080")?.price.usd, 0.6);
     assert.equal(getOrangeMoonVideoModel("qy-seedance-2.0-fast", "480p")?.resolution, "480p");
     assert.equal(getOrangeMoonVideoModel("qy-seedance-2.0-fast", "480p")?.price.usd, 1 / 6);
     assert.equal(normalizeSeedanceDurationForModel("qy-seedance-2.0", "8"), 10);
-    assert.equal((ORANGE_MOON_VIDEO_MODEL_IDS as readonly string[]).includes("431-Seedream-2.0"), false);
-    assert.deepEqual(ORANGE_MOON_VIDEO_MODELS.map((model) => model.label), ["Seedance 2.0 Fast", "Seedance 2.0"]);
+    assert.equal(getOrangeMoonVideoModel("431-Seedream-2.0-fast", "720p")?.price.usd, 0.189);
+    assert.equal(getOrangeMoonVideoModel("431-Seedream-2.0", "480p")?.price.usd, 0.148);
+    assert.equal(getOrangeMoonVideoModel("431-Seedream-2.0")?.references.images, 4);
+    assert.deepEqual(ORANGE_MOON_VIDEO_MODELS.map((model) => model.label), ["Seedance 2.0 Fast（431）", "Seedance 2.0（431）", "Seedance 2.0 Fast", "Seedance 2.0"]);
     assert.ok(ORANGE_MOON_VIDEO_MODELS.every((model) => !model.label.includes("清衍独家")));
 });
 
@@ -22,13 +24,14 @@ test("legacy browser selections migrate one-way to an allowed API", () => {
     assert.equal(getOrangeMoonVideoModel(legacy)?.name, "qy-seedance-2.0");
     assert.equal(canonicalOrangeMoonVideoModel("Seedance 2.0-fast-720p"), "qy-seedance-2.0-fast");
     assert.equal(getOrangeMoonVideoModel("Seedance 2.0-fast-720p", "1080p")?.resolution, "720p");
-    assert.equal(canonicalOrangeMoonVideoModel("431-Seedream-2.0"), "qy-seedance-2.0");
-    assert.equal(getOrangeMoonVideoModel("431-Seedream-2.0")?.name, "qy-seedance-2.0");
+    assert.equal(canonicalOrangeMoonVideoModel("431-Seedream-2.0"), "431-Seedream-2.0");
+    assert.equal(getOrangeMoonVideoModel("431-Seedream-2.0")?.name, "431-Seedream-2.0");
     assert.equal(normalizeSeedanceDurationForModel("431-Seedream-2.0", "8"), 10);
 });
 
 test("public model names hide the internal qy prefix while preserving the real model ids", () => {
     assert.equal(getOrangeMoonModelPublicName("qy-seedance-2.0-fast"), "seedance-2.0-fast");
     assert.equal(getOrangeMoonModelPublicName("qy-seedance-2.0"), "seedance-2.0");
+    assert.equal(getOrangeMoonModelPublicName("431-Seedream-2.0"), "431-Seedream-2.0");
     assert.equal(removeOrangeMoonInternalModelPrefix("当前使用 qy-seedance-2.0-fast"), "当前使用 seedance-2.0-fast");
 });

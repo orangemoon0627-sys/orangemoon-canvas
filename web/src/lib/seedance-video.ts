@@ -193,10 +193,17 @@ export function seedanceReferenceSetError(model: string, images: ReferenceImage[
     for (const video of videos) {
         if (video.bytes && video.bytes > limits.videoMaxBytes) return `${video.name} 超过 ${Math.round(limits.videoMaxBytes / 1024 / 1024)}MB，请压缩后再上传`;
         if (!video.durationMs) continue;
-        if (video.durationMs < 2000 || video.durationMs > 15000) return `${video.name} 时长需要在 2-15 秒之间`;
+        const minItemMs = (limits.videoMinItemSeconds || 0) * 1000;
+        const maxItemMs = (limits.videoMaxItemSeconds || 15) * 1000;
+        if (video.durationMs < minItemMs || video.durationMs > maxItemMs) return `${video.name} 时长需要在 ${limits.videoMinItemSeconds || 0}-${limits.videoMaxItemSeconds || 15} 秒之间`;
         totalDurationMs += video.durationMs;
     }
-    if (totalDurationMs > 15000) return "参考视频总时长不能超过 15 秒";
+    if (totalDurationMs && totalDurationMs < (limits.videoMinTotalSeconds || 0) * 1000) return `参考视频总时长不能少于 ${limits.videoMinTotalSeconds} 秒`;
+    if (totalDurationMs > (limits.videoMaxTotalSeconds || 15) * 1000) return `参考视频总时长不能超过 ${limits.videoMaxTotalSeconds || 15} 秒`;
+    for (const audio of audios) {
+        if (audio.bytes && audio.bytes > limits.audioMaxBytes) return `${audio.name} 超过 ${Math.round(limits.audioMaxBytes / 1_000_000)}MB，请压缩后再上传`;
+        if (audio.durationMs && audio.durationMs > (limits.audioMaxTotalSeconds || 15) * 1000) return `${audio.name} 时长不能超过 ${limits.audioMaxTotalSeconds || 15} 秒`;
+    }
     return "";
 }
 

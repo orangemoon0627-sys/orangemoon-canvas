@@ -186,6 +186,10 @@ function readReferenceImage(node: CanvasNodeData): ReferenceImage | null {
         type: node.metadata.mimeType || "image/png",
         dataUrl: node.metadata.content,
         storageKey: node.metadata.storageKey,
+        width: node.metadata.naturalWidth,
+        height: node.metadata.naturalHeight,
+        bytes: node.metadata.bytes,
+        mimeType: node.metadata.mimeType,
     };
 }
 

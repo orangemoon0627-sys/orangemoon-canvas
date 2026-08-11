@@ -34,6 +34,7 @@ test("供应商未配置时在冻结积分和创建任务前拒绝生图", async
             prompt: "测试图片",
             size: "1024x1024",
             n: 1,
+            images: [],
             response_format: "url",
             output_format: "png",
         }),
@@ -42,7 +43,7 @@ test("供应商未配置时在冻结积分和创建任务前拒绝生图", async
     assert.equal(reservationAttempts, 0);
 });
 
-test("已移除的 431 模型在配置检查和积分预授权前被拒绝", async () => {
+test("未登记的旧模型在配置检查和积分预授权前被拒绝", async () => {
     let upstreamChecks = 0;
     let reservationAttempts = 0;
     const upstream = {
@@ -60,7 +61,7 @@ test("已移除的 431 模型在配置检查和积分预授权前被拒绝", asy
 
     await assert.rejects(
         service.createVideo("user-1", "team-a", "video-preflight-1", {
-            model: "431-Seedream-2.0",
+            model: "mg-seedance2.0 -720p fast",
             prompt: "测试视频",
             duration: 5,
             resolution: "720p",
@@ -93,7 +94,7 @@ test("视频通道缺失时提示已退款和可用替代模型", () => {
     assert.ok(error instanceof ServiceUnavailableException);
     assert.match(error.message, /Seedance 2\.0/);
     assert.match(error.message, /未扣费，预授权已自动退回/);
-    assert.match(error.message, /Seedance 2\.0 Fast/);
+    assert.match(error.message, /另一个 Seedance 2\.0 通道/);
     assert.doesNotMatch(error.message, /清衍独家/);
     assert.doesNotMatch(error.message, /Fast 720P（独家）/);
     assert.doesNotMatch(error.message, /431/);

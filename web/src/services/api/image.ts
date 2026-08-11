@@ -5,6 +5,7 @@ import { normalizePluginImages, runModelPlugin } from "./model-plugin";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
+import { prepareReferenceImagesForJson } from "@/lib/reference-image-upload";
 import { imageToDataUrl } from "@/services/image-storage";
 import { orangeMoonPost } from "./orange-moon-gateway";
 import type { ReferenceImage } from "@/types/image";
@@ -663,7 +664,7 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
     return images;
 }
 
-async function requestOrangeMoonImages(config: AiConfig, prompt: string, n: number, size: string | undefined, quality: string | undefined, background: string | undefined, image: string | undefined, options?: RequestOptions) {
+async function requestOrangeMoonImages(config: AiConfig, prompt: string, n: number, size: string | undefined, quality: string | undefined, background: string | undefined, images: string[], options?: RequestOptions) {
     if (background) throw new Error("橙月官方 Image 2 当前不支持透明背景");
     const payload = await orangeMoonPost<ImageApiResponse>(
         "/metajing/v1/images/generations",
@@ -673,7 +674,7 @@ async function requestOrangeMoonImages(config: AiConfig, prompt: string, n: numb
             n,
             ...(size ? { size } : {}),
             ...(quality ? { quality } : {}),
-            ...(image ? { image } : {}),
+            ...(images.length ? { images } : {}),
             response_format: "url",
             output_format: IMAGE_OUTPUT_FORMAT,
         },
@@ -717,7 +718,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const background = normalizeBackground(config.background);
     if (isOrangeMoonManagedConfig(requestConfig)) {
         try {
-            return await requestOrangeMoonImages(requestConfig, prompt, Math.min(n, 4), requestSize, quality, background, undefined, options);
+            return await requestOrangeMoonImages(requestConfig, prompt, Math.min(n, 4), requestSize, quality, background, [], options);
         } catch (error) {
             throw new Error(readAxiosError(error, "Image 2 请求失败"));
         }
@@ -785,10 +786,10 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const background = normalizeBackground(config.background);
     if (isOrangeMoonManagedConfig(requestConfig)) {
         if (mask) throw new Error("橙月官方 Image 2 暂不支持蒙版编辑");
-        if (references.length > 1) throw new Error("橙月官方 Image 2 图生图当前只支持 1 张参考图");
+        if (references.length > 4) throw new Error("橙月官方 Image 2 最多支持 4 张参考图");
         try {
-            const reference = references[0] ? await imageToDataUrl(references[0]) : undefined;
-            return await requestOrangeMoonImages(requestConfig, requestPrompt, Math.min(n, 4), requestSize, quality, background, reference, options);
+            const preparedReferences = await prepareReferenceImagesForJson(references, 8_000_000);
+            return await requestOrangeMoonImages(requestConfig, requestPrompt, Math.min(n, 4), requestSize, quality, background, preparedReferences, options);
         } catch (error) {
             throw new Error(readAxiosError(error, "Image 2 图生图请求失败"));
         }

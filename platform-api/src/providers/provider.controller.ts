@@ -25,7 +25,7 @@ export class ProviderController {
             currency: { creditToCny: 1, ...(showCost ? { usdToCny: providerUsdToCny.metajing, providerUsdToCny } : {}) },
             pricing: { markup: showCost ? this.pricing.markup() : undefined, targetGrossMargin: this.pricing.targetGrossMargin(), rounding: PRICE_ROUNDING },
             providers: this.upstream.status(),
-            image: { maxCount: 4, maxReferences: 1, sizes: METAJING_IMAGE_SIZES },
+            image: { maxCount: 4, maxReferences: 4, sizes: METAJING_IMAGE_SIZES },
             models: PUBLIC_PROVIDER_MODELS.map((model) => {
                 const { billingByResolution, ...publicModel } = model;
                 const resolutionExamples = this.pricing.resolutionExamples(model);

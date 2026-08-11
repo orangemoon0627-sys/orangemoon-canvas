@@ -6,6 +6,7 @@ import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/fil
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { canonicalOrangeMoonVideoModel, getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
+import { prepareReferenceImagesForJson } from "@/lib/reference-image-upload";
 import { buildApiUrl, isOrangeMoonManagedConfig, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import { orangeMoonGet, orangeMoonPost } from "./orange-moon-gateway";
@@ -201,7 +202,7 @@ async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, 
     const duration = normalizeSeedanceDurationForModel(modelName, config.videoSeconds);
     const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
     const [images, videos, audios] = await Promise.all([
-        Promise.all(references.map((image) => resolveOrangeMoonImageUrl(image))),
+        prepareReferenceImagesForJson(references, model.references.imageMaxBytes),
         Promise.all(videoReferences.map((video) => resolveOrangeMoonVideoUrl(video))),
         Promise.all(audioReferences.map((audio) => resolveOrangeMoonAudioUrl(audio))),
     ]);
@@ -243,19 +244,18 @@ function assertOrangeMoonReferences(model: NonNullable<ReturnType<typeof getOran
     for (const video of videos) {
         if (video.bytes && video.bytes > limits.videoMaxBytes) throw new Error(`参考视频 ${video.name} 超过 ${Math.round(limits.videoMaxBytes / 1024 / 1024)}MB`);
         if (video.durationMs) {
-            if (video.durationMs < 2000 || video.durationMs > 15000) throw new Error(`参考视频 ${video.name} 时长需要在 2-15 秒之间`);
+            const minItemMs = (limits.videoMinItemSeconds || 0) * 1000;
+            const maxItemMs = (limits.videoMaxItemSeconds || 15) * 1000;
+            if (video.durationMs < minItemMs || video.durationMs > maxItemMs) throw new Error(`参考视频 ${video.name} 时长需要在 ${limits.videoMinItemSeconds || 0}-${limits.videoMaxItemSeconds || 15} 秒之间`);
             videoDurationMs += video.durationMs;
         }
     }
-    if (videoDurationMs > 15000) throw new Error("参考视频总时长不能超过 15 秒");
-}
-
-async function resolveOrangeMoonImageUrl(image: ReferenceImage) {
-    const directUrl = image.url || image.dataUrl;
-    if (isPublicMediaUrl(directUrl)) return directUrl;
-    const dataUrl = await imageToDataUrl(image);
-    if (!dataUrl) throw new Error("参考图读取失败，请换一张图片或重新上传");
-    return dataUrl;
+    if (videoDurationMs && videoDurationMs < (limits.videoMinTotalSeconds || 0) * 1000) throw new Error(`参考视频总时长不能少于 ${limits.videoMinTotalSeconds} 秒`);
+    if (videoDurationMs > (limits.videoMaxTotalSeconds || 15) * 1000) throw new Error(`参考视频总时长不能超过 ${limits.videoMaxTotalSeconds || 15} 秒`);
+    for (const audio of audios) {
+        if (audio.bytes && audio.bytes > limits.audioMaxBytes) throw new Error(`参考音频 ${audio.name} 超过 ${Math.round(limits.audioMaxBytes / 1_000_000)}MB`);
+        if (audio.durationMs && audio.durationMs > (limits.audioMaxTotalSeconds || 15) * 1000) throw new Error(`参考音频 ${audio.name} 时长不能超过 ${limits.audioMaxTotalSeconds || 15} 秒`);
+    }
 }
 
 async function resolveOrangeMoonVideoUrl(video: ReferenceVideo) {

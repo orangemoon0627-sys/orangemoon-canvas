@@ -24,7 +24,9 @@ test("MetaJing 按额度 1:1、MiniMax 按 7.3 汇率分别计价", () => {
     assert.equal(audio.retailMilliCredits, 723n);
 });
 
-test("两个独家视频 API 按官方每秒费率计费", () => {
+test("四个独家视频 API 按官方每秒费率计费", () => {
+    const fast431 = findProviderModel("431-Seedream-2.0-fast")!;
+    const standard431 = findProviderModel("431-Seedream-2.0")!;
     const qyFast = findProviderModel("qy-seedance-2.0-fast")!;
     const qy = findProviderModel("qy-seedance-2.0")!;
 
@@ -37,6 +39,12 @@ test("两个独家视频 API 按官方每秒费率计费", () => {
     assert.equal(pricing.quote(qyFast, 5, "720p").retailCredits, "1.65");
     assert.equal(pricing.quote(qy, 15, "720p").retailCredits, "6.6");
     assert.equal(pricing.quote(qy, 15, "1080p").retailCredits, "14.85");
+    assert.equal(pricing.quote(fast431, 1, "480p").retailCredits, "0.225");
+    assert.equal(pricing.quote(fast431, 1, "720p").retailCredits, "0.312");
+    assert.equal(pricing.quote(standard431, 1, "480p").retailCredits, "0.245");
+    assert.equal(pricing.quote(standard431, 1, "720p").retailCredits, "0.355");
+    assert.equal(pricing.quote(fast431, 14, "720p").retailCredits, "4.366");
+    assert.equal(pricing.quote(standard431, 14, "720p").retailCredits, "4.967");
 });
 
 test("不支持的分辨率不能报价", () => {
