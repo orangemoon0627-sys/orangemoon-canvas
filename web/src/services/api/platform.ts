@@ -186,6 +186,8 @@ export type ProviderPriceExample = {
     usdToCny?: number;
     markup?: number;
     grossMargin?: number;
+    priceMultiplier?: number;
+    videoReferenceSurchargeApplied?: boolean;
 };
 
 export type ProviderCatalogModel = {
@@ -206,10 +208,15 @@ export type ProviderCatalogModel = {
     allowedDurations?: number[];
     recommendedDurations?: number[];
     aspectRatios?: string[];
+    videoReferenceMultiplier?: number;
+    supportsFrames?: boolean;
+    supportsEndFrame?: boolean;
+    framesConflictWithImages?: boolean;
     billing: { unit: ProviderPriceExample["billingUnit"]; usd?: number };
     billingByResolution?: Partial<Record<"480p" | "720p" | "1080p", { unit: ProviderPriceExample["billingUnit"]; usd: number }>>;
     examples: ProviderPriceExample[];
     resolutionExamples?: Partial<Record<"480p" | "720p" | "1080p", ProviderPriceExample[]>>;
+    videoReferenceResolutionExamples?: Partial<Record<"480p" | "720p" | "1080p", ProviderPriceExample[]>>;
 };
 
 export type ProviderCatalog = {
@@ -233,6 +240,8 @@ export type ProviderBundleQuote = {
         requestedQuantity: number;
         quantity: number;
         billingUnit: ProviderPriceExample["billingUnit"];
+        priceMultiplier: number;
+        videoReferenceSurchargeApplied: boolean;
         retailMilliCredits: string;
         retailCredits: string;
     }>;
@@ -368,7 +377,7 @@ export function acceptWorkspaceInvite(token: string) {
     return platformRequest<{ ok: true; workspace: { id: string; name: string } }>(`/workspaces/invites/${encodeURIComponent(token)}/accept`, { method: "POST" });
 }
 
-export function quoteProviderBundle(items: Array<{ id: string; model: string; quantity: number; resolution?: string }>) {
+export function quoteProviderBundle(items: Array<{ id: string; model: string; quantity: number; resolution?: string; hasVideoReferences?: boolean }>) {
     return platformRequest<ProviderBundleQuote>("/providers/quote", { method: "POST", body: JSON.stringify({ items }) });
 }
 
@@ -408,6 +417,10 @@ export function uploadCanvasMedia(storageKey: string, blob: Blob) {
     const body = new FormData();
     body.append("file", blob, storageKey.replace(/[^A-Za-z0-9_.-]+/g, "_") || "media");
     return platformRequest<{ ok: true; media: PlatformCanvasMedia }>(`/canvas-media/${encodeURIComponent(storageKey)}`, { method: "PUT", body });
+}
+
+export function importGeneratedVideoMedia(url: string) {
+    return platformRequest<{ ok: true; media: { url: string; storageKey: string; bytes: number; mimeType: string } }>("/providers/video-media/import", { method: "POST", body: JSON.stringify({ url }) });
 }
 
 export async function downloadCanvasMedia(storageKey: string) {

@@ -256,7 +256,7 @@ function AgentGenerationReviewRow({ item, quoteCredits, catalog, theme, onChange
         const nextSize = next?.aspectRatios?.includes(item.size) ? item.size : next?.aspectRatios?.[0] || item.size;
         const resolutions = next?.resolutions || (next?.resolution ? [next.resolution] : []);
         const nextResolution = resolutions.includes(item.resolution as "480p" | "720p" | "1080p") ? item.resolution : next?.defaultResolution || next?.resolution || item.resolution;
-        onChange(item.nodeId, { model: next?.id || model, ...(item.mode === "video" ? { seconds: String(nextSeconds), size: nextSize, vquality: nextResolution.replace("p", "") } : {}) });
+        onChange(item.nodeId, { model: next?.id || model, ...(item.mode === "video" ? { seconds: String(nextSeconds), size: nextSize, vquality: nextResolution.replace("p", ""), videoReferenceMode: next?.supportsFrames ? item.videoReferenceMode : "ref" } : {}) });
     };
     const resolutionOptions = item.mode === "video" ? (selectedModel?.resolutions || (selectedModel?.resolution ? [selectedModel.resolution] : [])).map((resolution) => ({ value: resolution, label: resolution.toUpperCase() })) : [];
     return (
@@ -285,6 +285,21 @@ function AgentGenerationReviewRow({ item, quoteCredits, catalog, theme, onChange
                     <>
                         <LabeledControl label="时长"><Select size="small" className="w-full" value={item.seconds} options={durations.map((seconds) => ({ value: seconds, label: `${seconds} 秒` }))} onChange={(seconds) => onChange(item.nodeId, { seconds: String(seconds) })} /></LabeledControl>
                         <LabeledControl label="清晰度"><Select size="small" className="w-full" value={item.resolution} options={resolutionOptions} onChange={(resolution) => onChange(item.nodeId, { vquality: resolution.replace("p", "") })} /></LabeledControl>
+                        {selectedModel?.supportsFrames ? (
+                            <LabeledControl label="图片参考">
+                                <Select
+                                    size="small"
+                                    className="w-full"
+                                    value={item.videoReferenceMode}
+                                    options={[
+                                        { value: "ref", label: "全能参考" },
+                                        { value: "first", label: "首帧" },
+                                        ...(selectedModel.supportsEndFrame ? [{ value: "firstlast", label: "首尾帧" }] : []),
+                                    ]}
+                                    onChange={(videoReferenceMode) => onChange(item.nodeId, { videoReferenceMode })}
+                                />
+                            </LabeledControl>
+                        ) : null}
                     </>
                 ) : null}
             </div>

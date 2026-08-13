@@ -14,6 +14,7 @@ const defaults = {
     videoSize: "16:9",
     videoSeconds: 5,
     videoResolution: "720",
+    videoReferenceMode: "ref" as const,
 };
 
 test("builds editable image and video review items from a workflow", () => {
@@ -37,6 +38,19 @@ test("builds editable image and video review items from a workflow", () => {
         { model: "gpt-image-2", quantity: 2 },
         { model: "qy-seedance-2.0", quantity: 15 },
     ]);
+});
+
+test("marks a connected video reference for Seedance 2.5 surcharge quoting", () => {
+    const ops: CanvasAgentOp[] = [
+        { type: "add_node", id: "reference", nodeType: "video", title: "参考视频", metadata: { content: "https://example.com/ref.mp4" }, position: { x: 0, y: 0 } },
+        { type: "add_node", id: "video", nodeType: "config", title: "2.5 视频", metadata: { generationMode: "video", model: "qy-seedance-2.5", seconds: "15" }, position: { x: 400, y: 0 } },
+        { type: "connect_nodes", fromNodeId: "reference", toNodeId: "video" },
+        { type: "run_generation", nodeId: "video", mode: "video" },
+    ];
+    const item = buildAgentGenerationPlan(ops, null, defaults)[0]!;
+    assert.equal(item.hasVideoReferences, true);
+    assert.equal(item.videoReferenceMode, "ref");
+    assert.equal(generationQuoteItems([item])[0]?.hasVideoReferences, true);
 });
 
 test("updates generated config metadata before run_generation", () => {

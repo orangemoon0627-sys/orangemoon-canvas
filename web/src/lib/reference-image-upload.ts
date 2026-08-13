@@ -4,9 +4,9 @@ import type { ReferenceImage } from "@/types/image";
 const JSON_REFERENCE_BINARY_BUDGET = 20_000_000;
 const MAX_REFERENCE_IMAGE_BYTES = 6_000_000;
 
-export async function prepareReferenceImagesForJson(images: ReferenceImage[], perImageMaxBytes: number, maxDimension = 3072) {
+export async function prepareReferenceImagesForJson(images: ReferenceImage[], perImageMaxBytes: number, maxDimension = 3072, binaryBudget = JSON_REFERENCE_BINARY_BUDGET) {
     if (!images.length) return [];
-    const targetBytes = Math.min(perImageMaxBytes - 100_000, MAX_REFERENCE_IMAGE_BYTES, Math.floor(JSON_REFERENCE_BINARY_BUDGET / images.length));
+    const targetBytes = Math.min(perImageMaxBytes - 100_000, MAX_REFERENCE_IMAGE_BYTES, Math.floor(binaryBudget / images.length));
     if (targetBytes < 500_000) throw new Error("参考图数量过多，无法在当前请求体限制内提交");
 
     const prepared: string[] = [];

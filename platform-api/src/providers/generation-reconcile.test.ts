@@ -54,6 +54,7 @@ test("后台对账在供应商成功后结算积分并登记视频资产", async
             findMany: async () => [job],
         },
         asset: {
+            findFirst: async () => null,
             upsert: async (args: unknown) => {
                 assets.push(args);
                 return { publicId: "AST-VIDEO-1", ordinal: 0 };
@@ -69,9 +70,11 @@ test("后台对账在供应商成功后结算积分并登记视频资产", async
         },
     } as unknown as LedgerService;
     const upstream = {
-        pollVideo: async () => ({ status: "succeeded", data: [{ url: "https://cdn.example.com/result.mp4", mp4_url: "https://cdn.example.com/result.mp4" }] }),
+        pollVideo: async () => ({ status: "succeeded", data: [{ url: "https://metajing.cn/video-media/result.mp4", mp4_url: "https://metajing.cn/video-media/result.mp4" }] }),
+        videoMedia: async () => ({ body: Buffer.from("video"), contentType: "video/mp4", contentLength: 5 }),
     } as unknown as ProviderUpstreamService;
-    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces);
+    const canvasMedia = { saveBufferForWorkspace: async () => ({ mimeType: "video/mp4", bytes: 5 }) };
+    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces, canvasMedia as never);
 
     await service.reconcileSubmittedVideos();
 
@@ -79,7 +82,7 @@ test("后台对账在供应商成功后结算积分并登记视频资产", async
     assert.equal(updates.length, 1);
     assert.equal((updates[0] as { data: { status: GenerationStatus } }).data.status, GenerationStatus.SUCCEEDED);
     assert.equal(assets.length, 1);
-    assert.equal((assets[0] as { create: { data: { url: string } } }).create.data.url, "https://cdn.example.com/result.mp4");
+    assert.equal((assets[0] as { create: { data: { url: string } } }).create.data.url, "/platform-api/canvas-media/video%3AGEN-VIDEO-1");
 });
 
 test("后台查询暂时失败时保留预授权，不结算也不退款", async () => {
@@ -87,7 +90,7 @@ test("后台查询暂时失败时保留预授权，不结算也不退款", async
     let transactionAttempts = 0;
     const prisma = {
         generationJob: { findMany: async () => [job] },
-        asset: { upsert: async () => assert.fail("查询失败时不应登记资产") },
+        asset: { findFirst: async () => null, upsert: async () => assert.fail("查询失败时不应登记资产") },
     } as unknown as PrismaService;
     const ledger = {
         runSerializable: async () => {
@@ -100,7 +103,7 @@ test("后台查询暂时失败时保留预授权，不结算也不退款", async
             throw new Error("temporary upstream timeout");
         },
     } as unknown as ProviderUpstreamService;
-    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces);
+    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces, {} as never);
 
     await service.reconcileSubmittedVideos();
 
@@ -112,7 +115,10 @@ test("视频资产暂时无法登记时保留任务待重试，不提前扣费",
     let transactionAttempts = 0;
     const prisma = {
         generationJob: { findMany: async () => [job] },
-        asset: { upsert: async () => { throw new Error("temporary database error"); } },
+        asset: {
+            findFirst: async () => null,
+            upsert: async () => { throw new Error("temporary database error"); },
+        },
     } as unknown as PrismaService;
     const ledger = {
         runSerializable: async () => {
@@ -121,9 +127,11 @@ test("视频资产暂时无法登记时保留任务待重试，不提前扣费",
         },
     } as unknown as LedgerService;
     const upstream = {
-        pollVideo: async () => ({ state: "success", result_url: "https://cdn.example.com/result.mp4" }),
+        pollVideo: async () => ({ state: "success", result_url: "https://metajing.cn/video-media/result.mp4" }),
+        videoMedia: async () => ({ body: Buffer.from("video"), contentType: "video/mp4", contentLength: 5 }),
     } as unknown as ProviderUpstreamService;
-    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces);
+    const canvasMedia = { saveBufferForWorkspace: async () => ({ mimeType: "video/mp4", bytes: 5 }) };
+    const service = new GenerationService(prisma, ledger, {} as PricingService, upstream, workspaces, canvasMedia as never);
 
     await service.reconcileSubmittedVideos();
 

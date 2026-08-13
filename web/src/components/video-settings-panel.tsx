@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { Switch } from "antd";
+import { Segmented, Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceFastModel, isSeedanceVideoConfig, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
@@ -29,7 +29,7 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
+    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -114,7 +114,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
     const ratio = orangeMoonModel && !orangeMoonModel.aspectRatios.includes(normalizedRatio) ? orangeMoonModel.aspectRatios[0] : normalizedRatio;
     const duration = normalizeSeedanceDurationForModel(model, config.videoSeconds);
     const ratioOptions = orangeMoonModel ? seedanceRatioOptions.filter((item) => orangeMoonModel.aspectRatios.includes(item.value)) : seedanceRatioOptions;
-    const durationOptions = orangeMoonModel?.durations || seedanceDurationOptions;
+    const durationOptions = orangeMoonModel?.allowedDurations?.length ? orangeMoonModel.durations : orangeMoonProduct?.recommendedDurations || seedanceDurationOptions;
     const generateAudio = boolConfig(config.videoGenerateAudio, true);
     const watermark = boolConfig(config.videoWatermark, false);
 
@@ -163,6 +163,28 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                     </div>
                     {orangeMoonModel?.fixedDuration || orangeMoonModel?.allowedDurations?.length ? null : <NumberInput value={String(duration)} min={orangeMoonModel?.minDuration ?? -1} max={orangeMoonModel?.maxDuration ?? 15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
                 </SettingGroup>
+                {orangeMoonModel?.supportsFrames ? (
+                    <SettingGroup title="图片参考方式" color={theme.node.muted}>
+                        <Segmented
+                            block
+                            size="small"
+                            value={config.videoReferenceMode || "ref"}
+                            options={[
+                                { value: "ref", label: "全能参考" },
+                                { value: "first", label: "首帧" },
+                                ...(orangeMoonModel.supportsEndFrame ? [{ value: "firstlast", label: "首尾帧" }] : []),
+                            ]}
+                            onChange={(value) => onConfigChange("videoReferenceMode", String(value))}
+                        />
+                        <div className="text-[11px] leading-4 opacity-55">
+                            {config.videoReferenceMode === "firstlast"
+                                ? "按连接顺序将前两张图片作为首帧和尾帧。"
+                                : config.videoReferenceMode === "first"
+                                  ? "按连接顺序将第一张图片作为首帧。"
+                                  : `普通参考图最多 ${orangeMoonModel.references.images} 张。`}
+                        </div>
+                    </SettingGroup>
+                ) : null}
                 {orangeMoonModel ? null : (
                     <SettingGroup title="输出" color={theme.node.muted}>
                         <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>

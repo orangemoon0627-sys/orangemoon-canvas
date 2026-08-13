@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createWriteStream } from "node:fs";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Transform, type Readable } from "node:stream";
+import { Readable, Transform, type Readable as ReadableStream } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { BadRequestException, Injectable, NotFoundException, PayloadTooLargeException } from "@nestjs/common";
 import type { CanvasMedia } from "@prisma/client";
@@ -33,10 +33,20 @@ export class CanvasMediaService {
 
     async save(userId: string, workspacePublicId: string | undefined, storageKey: string, mimeType: string, stream: Readable & { truncated?: boolean }) {
         const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
+        return this.saveForWorkspace(userId, workspace.id, storageKey, mimeType, stream);
+    }
+
+    async saveBufferForWorkspace(userId: string, workspaceId: string, storageKey: string, mimeType: string, buffer: Buffer) {
+        const stream = Readable.from(buffer) as ReadableStream & { truncated?: boolean };
+        return this.saveForWorkspace(userId, workspaceId, storageKey, mimeType, stream);
+    }
+
+    private async saveForWorkspace(userId: string, workspaceId: string, storageKey: string, mimeType: string, stream: ReadableStream & { truncated?: boolean }) {
         validateStorageKey(storageKey);
         validateMimeType(mimeType);
-        const existing = await this.prisma.canvasMedia.findUnique({ where: { workspaceId_storageKey: { workspaceId: workspace.id, storageKey } } });
+        const existing = await this.prisma.canvasMedia.findUnique({ where: { workspaceId_storageKey: { workspaceId, storageKey } } });
         const target = mediaPath(userId, storageKey);
+        if (existing && await fileExists(target)) return existing;
         const temporary = `${target}.${randomUUID()}.partial`;
         await mkdir(dirname(target), { recursive: true });
         const hash = createHash("sha256");
@@ -57,8 +67,8 @@ export class CanvasMediaService {
             await rename(temporary, target);
             const checksum = hash.digest("hex");
             const media = await this.prisma.canvasMedia.upsert({
-                where: { workspaceId_storageKey: { workspaceId: workspace.id, storageKey } },
-                create: { userId, workspaceId: workspace.id, storageKey, mimeType, bytes, checksum },
+                where: { workspaceId_storageKey: { workspaceId, storageKey } },
+                create: { userId, workspaceId, storageKey, mimeType, bytes, checksum },
                 update: { userId, mimeType, bytes, checksum },
             });
             if (existing?.userId && existing.userId !== userId) await rm(mediaPath(existing.userId, storageKey), { force: true }).catch(() => undefined);
@@ -76,7 +86,7 @@ export class CanvasMediaService {
         if (!media) throw new NotFoundException("媒体文件不存在");
         const path = mediaPath(media.userId, storageKey);
         if (!(await fileExists(path))) throw new NotFoundException("媒体文件不存在");
-        return { media, stream: createReadStream(path) };
+        return { media, path };
     }
 }
 

@@ -1,3 +1,5 @@
+export type VideoReferenceMode = "ref" | "first" | "firstlast";
+
 export type ReferenceVideo = {
     id: string;
     name: string;

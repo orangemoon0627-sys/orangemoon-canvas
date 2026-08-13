@@ -5,6 +5,7 @@ export const ORANGE_MOON_GATEWAY_URL = "canvas-agent://providers";
 export const ORANGE_MOON_VIDEO_MODEL_IDS = [
     "431-Seedream-2.0-fast",
     "431-Seedream-2.0",
+    "qy-seedance-2.5",
     "qy-seedance-2.0-fast",
     "qy-seedance-2.0",
 ] as const;
@@ -24,6 +25,7 @@ export type OrangeMoonVideoModel = {
     fixedDuration?: number;
     allowedDurations?: number[];
     durations: number[];
+    recommendedDurations?: number[];
     aspectRatios: string[];
     references: {
         images: number;
@@ -37,7 +39,14 @@ export type OrangeMoonVideoModel = {
         videoMinTotalSeconds?: number;
         videoMaxTotalSeconds?: number;
         audioMaxTotalSeconds?: number;
+        videoMinShortEdge?: number;
+        videoMaxShortEdge?: number;
+        videoMaxLongEdge?: number;
     };
+    videoReferenceMultiplier?: number;
+    supportsFrames?: boolean;
+    supportsEndFrame?: boolean;
+    framesConflictWithImages?: boolean;
     price: { unit: "second" | "generation"; usd: number };
 };
 export type OrangeMoonVideoProduct = {
@@ -51,11 +60,17 @@ export type OrangeMoonVideoProduct = {
     maxDuration: number;
     allowedDurations?: number[];
     durations: number[];
+    recommendedDurations?: number[];
     aspectRatios: string[];
     references: OrangeMoonVideoModel["references"];
+    videoReferenceMultiplier?: number;
+    supportsFrames?: boolean;
+    supportsEndFrame?: boolean;
+    framesConflictWithImages?: boolean;
 };
 
 const qyReferences = { images: 9, videos: 3, audios: 3, imageMaxBytes: 15_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 2, videoMaxItemSeconds: 15, videoMinTotalSeconds: 2, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
+const qy25References = { images: 30, videos: 10, audios: 10, imageMaxBytes: 30_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, audioMaxTotalSeconds: 150, videoMinShortEdge: 720, videoMaxShortEdge: 2160, videoMaxLongEdge: 2160 };
 const references431 = { images: 4, videos: 3, audios: 1, imageMaxBytes: 30_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
 const qyRatios = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
 const ratios431 = ["16:9", "1:1", "9:16"];
@@ -74,6 +89,8 @@ export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
         durations: [5, 10, 14],
         aspectRatios: ratios431,
         references: references431,
+        supportsFrames: true,
+        supportsEndFrame: true,
     },
     {
         name: "431-Seedream-2.0",
@@ -88,6 +105,26 @@ export const ORANGE_MOON_VIDEO_MODELS: OrangeMoonVideoProduct[] = [
         durations: [5, 10, 14],
         aspectRatios: ratios431,
         references: references431,
+        supportsFrames: true,
+        supportsEndFrame: true,
+    },
+    {
+        name: "qy-seedance-2.5",
+        label: "Seedance 2.5",
+        tier: "standard",
+        resolutions: ["480p", "720p"],
+        defaultResolution: "720p",
+        rates: { "480p": 0.19, "720p": 0.24 },
+        minDuration: 4,
+        maxDuration: 29,
+        durations: Array.from({ length: 26 }, (_, index) => index + 4),
+        recommendedDurations: [5, 10, 15, 29],
+        aspectRatios: ratios431,
+        references: qy25References,
+        videoReferenceMultiplier: 1.6,
+        supportsFrames: true,
+        supportsEndFrame: true,
+        framesConflictWithImages: true,
     },
     {
         name: "qy-seedance-2.0-fast",
@@ -199,6 +236,10 @@ export function getOrangeMoonVideoModel(name: string, requestedResolution?: stri
         durations: product.durations,
         aspectRatios: product.aspectRatios,
         references: product.references,
+        videoReferenceMultiplier: product.videoReferenceMultiplier,
+        supportsFrames: product.supportsFrames,
+        supportsEndFrame: product.supportsEndFrame,
+        framesConflictWithImages: product.framesConflictWithImages,
         price: { unit: "second" as const, usd: product.rates[resolution]! },
     } satisfies OrangeMoonVideoModel;
 }
@@ -221,7 +262,7 @@ export function getOrangeMoonModelPublicName(name: string) {
 }
 
 export function removeOrangeMoonInternalModelPrefix(value: string) {
-    return value.replace(/\bqy-(?=seedance-2\.0(?:-fast)?(?:[-:]|\b))/gi, "");
+    return value.replace(/\bqy-(?=seedance-2\.(?:0(?:-fast)?|5)(?:[-:]|\b))/gi, "");
 }
 
 function normalizeResolution(value?: string): OrangeMoonVideoResolution | undefined {

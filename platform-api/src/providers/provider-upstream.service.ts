@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 
 import { BadGatewayException, BadRequestException, HttpException, HttpStatus, Injectable, ServiceUnavailableException } from "@nestjs/common";
 
+import { platformMediaMaxFileBytes } from "../common/environment";
 import type { ImageRequest, SpeechRequest, VideoRequest } from "./provider-schemas";
 import { findProviderModel, isExclusiveVideoModelId, resolveProviderVideoResolution } from "./provider-catalog";
 
@@ -65,6 +66,42 @@ export class ProviderUpstreamService {
         } finally {
             clearTimeout(timeout);
         }
+    }
+
+    async videoMedia(sourceUrl: string) {
+        const config = this.metaJingConfig();
+        const source = new URL(sourceUrl);
+        const base = new URL(config.baseUrl);
+        if (!["http:", "https:"].includes(source.protocol) || (source.hostname !== base.hostname && !source.hostname.endsWith(`.${base.hostname}`))) {
+            throw new BadGatewayException("生成视频地址不属于已配置的 MetaJing 域名");
+        }
+
+        const maxBytes = platformMediaMaxFileBytes();
+        let lastError: unknown;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 180_000);
+            try {
+                const response = await fetch(source, { signal: controller.signal, headers: { Accept: "video/*" } });
+                if (!response.ok) throw new BadGatewayException(`生成视频读取失败（${response.status}）`);
+                const rawContentType = String(response.headers.get("content-type") || "").split(";", 1)[0]!.trim().toLowerCase();
+                if (rawContentType && !rawContentType.startsWith("video/") && rawContentType !== "application/octet-stream") throw new BadGatewayException("生成视频源返回了非视频内容");
+                const declaredLength = Number(response.headers.get("content-length") || 0);
+                if (declaredLength > maxBytes) throw new BadGatewayException(`生成视频超过 ${Math.floor(maxBytes / 1024 / 1024)}MB 限制`);
+                const body = Buffer.from(await response.arrayBuffer());
+                if (!body.byteLength) throw new BadGatewayException("生成视频为空文件");
+                if (body.byteLength > maxBytes) throw new BadGatewayException(`生成视频超过 ${Math.floor(maxBytes / 1024 / 1024)}MB 限制`);
+                return { body, contentType: rawContentType.startsWith("video/") ? rawContentType : "video/mp4", contentLength: body.byteLength };
+            } catch (error) {
+                if (error instanceof HttpException) throw error;
+                lastError = error;
+                if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+            } finally {
+                clearTimeout(timeout);
+            }
+        }
+        if (lastError instanceof Error && lastError.name === "AbortError") throw new HttpException("生成视频读取超时", HttpStatus.GATEWAY_TIMEOUT);
+        throw new BadGatewayException(lastError instanceof Error ? lastError.message : "生成视频读取失败");
     }
 
     async createVideo(input: VideoRequest) {

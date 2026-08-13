@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, FileText, Group, Image as ImageIcon, Images, Music2, Plus, Puzzle, RefreshCw, Star, Video } from "lucide-react";
+import { ChevronRight, FileText, Group, Image as ImageIcon, Images, LoaderCircle, Music2, Plus, Puzzle, RefreshCw, Star, Video, Wrench } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { estimateGenerationProgress, formatGenerationEta } from "@/lib/canvas/canvas-generation-progress";
+import { resolveMediaUrl } from "@/services/file-storage";
+import { getActiveWorkspaceId } from "@/services/workspace-session";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canvas";
@@ -50,6 +52,7 @@ type CanvasNodeProps = {
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (node: CanvasNodeData) => void;
     onRetry?: (node: CanvasNodeData) => void;
+    onRepairVideo?: (node: CanvasNodeData) => Promise<void>;
     onGenerateImage?: (node: CanvasNodeData) => void;
     onOpenPanel?: (node: CanvasNodeData) => void;
     onViewImage?: (node: CanvasNodeData) => void;
@@ -72,6 +75,7 @@ type NodeContentRendererProps = {
     onStopEditing: () => void;
     mentionReferences: CanvasResourceReference[];
     onRetry?: (node: CanvasNodeData) => void;
+    onRepairVideo?: (node: CanvasNodeData) => Promise<void>;
     onGenerateImage?: (node: CanvasNodeData) => void;
     onOpenPanel?: (node: CanvasNodeData) => void;
     onToggleBatch?: () => void;
@@ -113,6 +117,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onToggleBatch,
     onSetBatchPrimary,
     onRetry,
+    onRepairVideo,
     onGenerateImage,
     onOpenPanel,
     onViewImage,
@@ -429,6 +434,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onContentChange={onContentChange}
                         onStopEditing={() => setIsEditingContent(false)}
                         onRetry={onRetry}
+                        onRepairVideo={onRepairVideo}
                         onGenerateImage={onGenerateImage}
                         onOpenPanel={onOpenPanel}
                         onToggleBatch={() => onToggleBatch?.(data.id)}
@@ -658,8 +664,34 @@ function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batc
     return content;
 }
 
-function VideoNodeContent({ node, theme, onOpenPanel }: NodeContentRendererProps) {
-    if (!node.metadata?.content)
+function VideoNodeContent({ node, theme, onOpenPanel, onRepairVideo }: NodeContentRendererProps) {
+    const [source, setSource] = useState("");
+    const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+    const [repairing, setRepairing] = useState(false);
+    const [reloadNonce, setReloadNonce] = useState(0);
+    const content = node.metadata?.content || "";
+    const storageKey = node.metadata?.storageKey || "";
+
+    useEffect(() => {
+        let active = true;
+        setLoadState("loading");
+        if (content) {
+            setSource(playableVideoUrl(content));
+            return () => { active = false; };
+        }
+        if (!storageKey) {
+            setSource("");
+            return () => { active = false; };
+        }
+        void resolveMediaUrl(storageKey).then((url) => {
+            if (!active) return;
+            setSource(url);
+            if (!url) setLoadState("error");
+        });
+        return () => { active = false; };
+    }, [content, reloadNonce, storageKey]);
+
+    if (!content && !storageKey)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2.5 px-5" style={{ color: theme.node.placeholder }}>
                 <Video className="size-5 opacity-50" />
@@ -669,7 +701,71 @@ function VideoNodeContent({ node, theme, onOpenPanel }: NodeContentRendererProps
                 </div>
             </div>
         );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-md bg-black object-contain" data-canvas-no-zoom />;
+    const canRepair = /^https?:\/\//i.test(content) && !content.includes("/platform-api/canvas-media/") && Boolean(onRepairVideo);
+    return (
+        <div className="relative h-full w-full overflow-hidden rounded-md bg-black">
+            {source ? (
+                <video
+                    key={`${source}:${reloadNonce}`}
+                    src={source}
+                    controls
+                    preload="metadata"
+                    className="h-full w-full object-contain"
+                    data-canvas-no-zoom
+                    onLoadedMetadata={() => setLoadState("ready")}
+                    onCanPlay={() => setLoadState("ready")}
+                    onError={() => setLoadState("error")}
+                />
+            ) : null}
+            {loadState === "loading" ? (
+                <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/65 text-white">
+                    <div className="flex items-center gap-2 text-xs"><LoaderCircle className="size-4 animate-spin" />正在载入视频</div>
+                </div>
+            ) : null}
+            {loadState === "error" ? (
+                <div className="absolute inset-0 grid place-items-center bg-black/80 px-5 text-center text-white">
+                    <div className="space-y-3">
+                        <div><div className="text-xs font-medium">视频无法加载</div><div className="mt-1 text-[10px] text-white/55">{canRepair ? "可迁移到橙月媒体库后继续播放" : "请检查网络后重新载入"}</div></div>
+                        <button
+                            type="button"
+                            disabled={repairing}
+                            className="mx-auto flex h-8 items-center gap-1.5 border border-white/20 px-3 text-xs transition hover:bg-white/10 disabled:opacity-50"
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={async (event) => {
+                                event.stopPropagation();
+                                if (!canRepair) {
+                                    setLoadState("loading");
+                                    setReloadNonce((value) => value + 1);
+                                    return;
+                                }
+                                setRepairing(true);
+                                try {
+                                    await onRepairVideo?.(node);
+                                } catch {
+                                    setLoadState("error");
+                                } finally {
+                                    setRepairing(false);
+                                }
+                            }}
+                        >
+                            {repairing ? <LoaderCircle className="size-3.5 animate-spin" /> : canRepair ? <Wrench className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+                            {repairing ? "正在修复" : canRepair ? "修复媒体" : "重新载入"}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function playableVideoUrl(value: string) {
+    if (!value.includes("/platform-api/canvas-media/")) return value;
+    const workspaceId = getActiveWorkspaceId();
+    if (!workspaceId) return value;
+    const url = new URL(value, window.location.origin);
+    url.searchParams.set("workspaceId", workspaceId);
+    return value.startsWith("http") ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
 }
 
 function EmptyVideoAction({ icon, label, theme, onClick }: { icon: ReactNode; label: string; theme: NodeContentRendererProps["theme"]; onClick: () => void }) {

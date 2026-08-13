@@ -155,8 +155,9 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
                 videoSize: effectiveConfig.size || "16:9",
                 videoSeconds: Number(effectiveConfig.videoSeconds) || 5,
                 videoResolution: effectiveConfig.vquality || "720",
+                videoReferenceMode: effectiveConfig.videoReferenceMode,
             }),
-        [effectiveConfig.audioModel, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.quality, effectiveConfig.size, effectiveConfig.videoModel, effectiveConfig.videoSeconds, effectiveConfig.vquality, pendingTool],
+        [effectiveConfig.audioModel, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.quality, effectiveConfig.size, effectiveConfig.videoModel, effectiveConfig.videoReferenceMode, effectiveConfig.videoSeconds, effectiveConfig.vquality, pendingTool],
     );
     const reviewGenerationPlan = useMemo(() => normalizeGenerationPlan(generationPlan, providerCatalog), [generationPlan, providerCatalog]);
     const billableQuoteItems = useMemo(() => officialQuoteItems(reviewGenerationPlan, providerCatalog), [providerCatalog, reviewGenerationPlan]);
@@ -686,6 +687,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect, compact
                 videoSize: effectiveConfig.size || "16:9",
                 videoSeconds: Number(effectiveConfig.videoSeconds) || 5,
                 videoResolution: effectiveConfig.vquality || "720",
+                videoReferenceMode: effectiveConfig.videoReferenceMode,
             });
             const latestPlan = normalizeGenerationPlan(latestRawPlan, catalog);
             const executionOps = synchronizeAgentGenerationOps(tool.input?.ops, latestPlan);

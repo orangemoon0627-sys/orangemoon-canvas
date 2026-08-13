@@ -336,6 +336,143 @@ test("Agent 可创建完整导演台节点", async (t) => {
     assert.deepEqual(await result, { ok: true });
 });
 
+test("Agent 默认导演台使用单个可摆姿态的 3D 人物", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState(snapshot("canvas-first"), "first");
+
+    const result = session.callTool("canvas_create_director_scene", { title: "默认导演台", scene: {} });
+    const call = client.event("tool_call");
+    const ops = (field(call, "input") as { ops: Array<Record<string, unknown>> }).ops;
+    const director = ops.find((op) => op.nodeType === "director");
+    const scene = (director?.metadata as Record<string, unknown>).director as Record<string, unknown>;
+    assert.equal(scene.version, 2);
+    assert.equal(scene.compositionMode, "space3d");
+    assert.deepEqual((scene.objects as Array<Record<string, unknown>>).map((object) => object.id), ["character-hero"]);
+    const character = (scene.objects as Array<Record<string, unknown>>)[0];
+    assert.equal(character.primitive, "character");
+    assert.equal((character.characterRig as Record<string, unknown>).posePreset, "stand");
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
+});
+
+test("Agent 导演台排序按角色层级而不是盲信 layerOrder", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState(snapshot("canvas-first"), "first");
+
+    const result = session.callTool("canvas_create_director_scene", {
+        scene: {
+            objects: [
+                { id: "effect", name: "法术", primitive: "box", role: "effect", layerOrder: -100 },
+                { id: "character", name: "人物", primitive: "character", role: "character", layerOrder: 100 },
+                { id: "prop", name: "兵器", primitive: "box", role: "prop", layerOrder: 50 },
+                { id: "background", name: "背景", primitive: "box", role: "background", layerOrder: 999 },
+            ],
+        },
+    });
+    const call = client.event("tool_call");
+    const ops = (field(call, "input") as { ops: Array<Record<string, unknown>> }).ops;
+    const director = ops.find((op) => op.nodeType === "director");
+    const scene = (director?.metadata as Record<string, unknown>).director as Record<string, unknown>;
+    assert.deepEqual((scene.objects as Array<Record<string, unknown>>).map((object) => object.role), ["background", "prop", "character", "effect"]);
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
+});
+
+test("Agent 创建导演台时解析真实素材并自动建立素材连线", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState({
+        ...snapshot("canvas-first"),
+        nodes: [
+            { id: "image-background", type: "image", title: "山门背景", position: { x: 0, y: 0 }, width: 640, height: 360, metadata: { content: "https://cdn.test/background.png", storageKey: "image:bg-1", naturalWidth: 1920, naturalHeight: 1080, mimeType: "image/png" } },
+            { id: "image-hero", type: "image", title: "杨戬人物", position: { x: 720, y: 0 }, width: 320, height: 480, metadata: { content: "https://cdn.test/hero.png", storageKey: "image:hero-1", naturalWidth: 1200, naturalHeight: 1800, mimeType: "image/png" } },
+        ],
+    }, "first");
+
+    const result = session.callTool("canvas_create_director_scene", {
+        title: "山门斗法",
+        scene: {
+            name: "山门斗法",
+            compositionMode: "space3d",
+            objects: [
+                { id: "layer-background", name: "山门背景", sourceNodeId: "image-background", primitive: "image", role: "background", position: [2, 1, 4], rotation: [0, 0, 0], scale: [2, 2, 2] },
+                { id: "layer-hero", name: "杨戬", sourceNodeId: "image-hero", primitive: "image", role: "character", position: [-1, -0.7, 0], rotation: [0, 0.2, 0], scale: [1, 1, 1] },
+            ],
+        },
+    });
+    const call = client.event("tool_call");
+    const ops = (field(call, "input") as { ops: Array<Record<string, unknown>> }).ops;
+    const director = ops.find((op) => op.nodeType === "director");
+    const scene = (director?.metadata as Record<string, unknown>).director as Record<string, unknown>;
+    const objects = scene.objects as Array<Record<string, unknown>>;
+    const background = objects.find((object) => object.id === "layer-background")!;
+    const hero = objects.find((object) => object.id === "layer-hero")!;
+    assert.equal(background.assetUrl, "https://cdn.test/background.png");
+    assert.equal(background.storageKey, "image:bg-1");
+    assert.equal(background.assetKind, "image");
+    assert.equal(background.fit, "cover");
+    assert.deepEqual(background.displaySize, [16, 9]);
+    assert.equal(hero.assetWidth, 1200);
+    assert.equal(hero.assetHeight, 1800);
+    assert.equal(hero.fit, "contain");
+    assert.equal(hero.primitive, "character");
+    assert.equal((hero.characterRig as Record<string, unknown>).posePreset, "stand");
+    assert.equal(scene.compositionMode, "space3d");
+    assert.equal((objects[0] as Record<string, unknown>).role, "background");
+    assert.deepEqual(ops.filter((op) => op.type === "connect_nodes").map((op) => ({ fromNodeId: op.fromNodeId, toNodeId: op.toNodeId })), [
+        { fromNodeId: "image-background", toNodeId: director?.id },
+        { fromNodeId: "image-hero", toNodeId: director?.id },
+    ]);
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
+});
+
+test("Agent 更新导演台时只补缺失素材连线并保留已有连线", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState({
+        ...snapshot("canvas-first"),
+        nodes: [
+            { id: "image-background", type: "image", title: "背景", position: { x: 0, y: 0 }, width: 640, height: 360, metadata: { storageKey: "image:bg", content: "https://cdn.test/bg.png", naturalWidth: 1920, naturalHeight: 1080 } },
+            { id: "image-hero", type: "image", title: "人物", position: { x: 720, y: 0 }, width: 320, height: 480, metadata: { storageKey: "image:hero", content: "https://cdn.test/hero.png", naturalWidth: 1200, naturalHeight: 1800 } },
+            { id: "director-1", type: "director", title: "第一版", position: { x: 10, y: 20 }, width: 440, height: 280, metadata: { director: { name: "第一版", objects: [{ id: "background-layer", name: "背景", sourceNodeId: "image-background", primitive: "image", role: "background" }] } } },
+        ],
+        connections: [{ id: "connection-existing", fromNodeId: "image-background", toNodeId: "director-1" }],
+    }, "first");
+
+    const result = session.callTool("canvas_update_director_scene", {
+        nodeId: "director-1",
+        scene: { objects: [{ id: "background-layer", name: "背景", sourceNodeId: "image-background", primitive: "image", role: "background" }, { id: "hero-layer", name: "人物", sourceNodeId: "image-hero", primitive: "image", role: "character" }] },
+    });
+    const call = client.event("tool_call");
+    const ops = (field(call, "input") as { ops: Array<Record<string, unknown>> }).ops;
+    assert.equal(ops.filter((op) => op.type === "connect_nodes").length, 1);
+    assert.deepEqual(ops.filter((op) => op.type === "connect_nodes").map((op) => ({ fromNodeId: op.fromNodeId, toNodeId: op.toNodeId })), [{ fromNodeId: "image-hero", toNodeId: "director-1" }]);
+    const updatedScene = ((ops[0].metadata as Record<string, unknown>).director as Record<string, unknown>);
+    assert.equal((updatedScene.objects as Array<Record<string, unknown>>).length, 2);
+    session.resolveResult("first", { requestId: String(field(call, "requestId")), result: { ok: true } });
+    assert.deepEqual(await result, { ok: true });
+});
+
+test("Agent 拒绝无效的导演台素材引用", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState(snapshot("canvas-first"), "first");
+
+    await assert.rejects(
+        session.callTool("canvas_create_director_scene", { scene: { objects: [{ name: "不存在的背景", sourceNodeId: "missing-node", primitive: "image" }] } }),
+        /找不到画布节点 missing-node/,
+    );
+    assert.equal(client.event("tool_call"), undefined);
+});
+
 test("Agent 原地迭代导演台并保留未修改场景字段", async (t) => {
     const session = new CanvasSession();
     const client = connect(session, "first");

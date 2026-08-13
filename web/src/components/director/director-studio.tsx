@@ -1,18 +1,19 @@
-import { ArrowLeft, Box, Camera, Circle, Clapperboard, Cone, Cuboid, Diamond, Download, Film, Image as ImageIcon, KeyRound, Menu, Move3d, Pause, Play, Plus, Rotate3d, Save, Scaling, Settings2, SlidersHorizontal, Sparkles, Trash2, Upload, UserRound, Video } from "lucide-react";
-import { App, Button, Divider, Drawer, Dropdown, Input, InputNumber, Select, Tooltip } from "antd";
+import { ArrowLeft, Box, Camera, Circle, Clapperboard, Cone, Copy, Cuboid, Diamond, Download, Eye, EyeOff, Film, Focus, Image as ImageIcon, KeyRound, Layers3, Lock, Menu, Move3d, Pause, Play, Plus, Rotate3d, Save, Scaling, Settings2, SlidersHorizontal, Sparkles, Trash2, Unlock, Upload, UserRound, Video } from "lucide-react";
+import { App, Button, Divider, Drawer, Dropdown, Input, InputNumber, Select, Slider, Switch, Tooltip } from "antd";
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DirectorTimeline } from "@/components/director/director-timeline";
-import { DirectorViewport, type DirectorTransformMode } from "@/components/director/director-viewport";
-import { buildSeedanceDirectorPrompt, normalizeDirectorScene, sceneAtTime, upsertTransformKeyframes } from "@/lib/director/director-scene";
+import { DirectorCameraPreview, DirectorViewport, type DirectorTransformMode, type DirectorViewMode } from "@/components/director/director-viewport";
+import { applyDirectorPosePreset, buildSeedanceDirectorPrompt, configureDirectorObjectRole, createDirectorCharacterRig, directorAssetDisplaySize, directorLayerRoleLabel, normalizeDirectorScene, placeDirectorLayer, removeDefaultDirectorPlaceholders, replaceDefaultDirectorCharacter, resizeDirectorSceneAspectRatio, sceneAtTime, sortDirectorLayers, updateDirectorCharacterJoint, upsertTransformKeyframes } from "@/lib/director/director-scene";
 import { uploadMediaFile } from "@/services/file-storage";
-import type { DirectorCamera, DirectorKeyframe, DirectorObject, DirectorPrimitive, DirectorScene, DirectorShot, DirectorVector3 } from "@/types/director";
+import type { DirectorAsset, DirectorBackgroundProjection, DirectorCamera, DirectorCharacterJoint, DirectorCharacterPosePreset, DirectorKeyframe, DirectorLayerRole, DirectorObject, DirectorPrimitive, DirectorScene, DirectorShot, DirectorVector3 } from "@/types/director";
 
 type Selection = { kind: "object" | "camera" | "shot" | "keyframe"; id: string };
 
-export function DirectorStudio({ initialScene, onClose, onSave, onExportImage, onExportPrompt }: {
+export function DirectorStudio({ initialScene, assets, onClose, onSave, onExportImage, onExportPrompt }: {
     initialScene: unknown;
+    assets: DirectorAsset[];
     onClose: () => void;
     onSave: (scene: DirectorScene) => void;
     onExportImage: (scene: DirectorScene, blob: Blob) => Promise<void>;
@@ -25,6 +26,9 @@ export function DirectorStudio({ initialScene, onClose, onSave, onExportImage, o
     const [dirty, setDirty] = useState(false);
     const [selection, setSelection] = useState<Selection>(() => ({ kind: "object", id: normalizeDirectorScene(initialScene).objects[0]?.id || "" }));
     const [transformMode, setTransformMode] = useState<DirectorTransformMode>("translate");
+    const [selectedCharacterJoint, setSelectedCharacterJoint] = useState<DirectorCharacterJoint | null>(null);
+    const [viewMode, setViewMode] = useState<DirectorViewMode>("director");
+    const [viewResetKey, setViewResetKey] = useState(0);
     const [leftDrawer, setLeftDrawer] = useState(false);
     const [rightDrawer, setRightDrawer] = useState(false);
     const [exporting, setExporting] = useState(false);
@@ -81,9 +85,15 @@ export function DirectorStudio({ initialScene, onClose, onSave, onExportImage, o
         if (!canvas) return;
         setExporting(true);
         try {
+            const previousViewMode = viewMode;
+            if (previousViewMode !== "camera") {
+                setViewMode("camera");
+                await waitForPaint();
+            }
             const blob = await canvasBlob(canvas);
             await onExportImage(scene, blob);
             message.success("当前机位已输出为图片节点");
+            if (previousViewMode !== "camera") setViewMode(previousViewMode);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "截图失败");
         } finally { setExporting(false); }
@@ -110,10 +120,80 @@ export function DirectorStudio({ initialScene, onClose, onSave, onExportImage, o
     });
 
     const updateCurrentShotCamera = (camera: DirectorCamera) => updateCamera(camera.id, camera, true);
+    const updateCharacterJoint = (id: string, joint: DirectorCharacterJoint, rotation: DirectorVector3) => changeScene((current) => {
+        const object = current.objects.find((item) => item.id === id);
+        if (!object) return current;
+        const updatedObject = updateDirectorCharacterJoint(object, joint, rotation);
+        return { ...current, objects: current.objects.map((item) => item.id === id ? updatedObject : item) };
+    });
     const addObject = (primitive: DirectorPrimitive) => {
         const id = `object-${nanoid()}`;
-        const object: DirectorObject = { id, name: primitive === "character" ? `人物 ${scene.objects.filter((item) => item.primitive === "character").length + 1}` : `道具 ${scene.objects.length + 1}`, primitive, position: [0, primitive === "character" ? 1 : 0.65, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: primitive === "character" ? "#e9583e" : "#558b82" };
-        changeScene({ ...scene, objects: [...scene.objects, object] });
+        const role: DirectorLayerRole = primitive === "character" ? "character" : "prop";
+        const object: DirectorObject = { id, name: primitive === "character" ? `角色 ${scene.objects.filter((item) => item.primitive === "character").length + 1}` : `道具 ${scene.objects.length + 1}`, primitive, role, position: [0, primitive === "character" ? 0 : 0.65, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: primitive === "character" ? "#4e9bff" : "#558b82", visible: true, locked: false, ...(primitive === "character" ? { characterRig: createDirectorCharacterRig() } : {}) };
+        changeScene((current) => {
+            return { ...current, objects: placeDirectorLayer(current.objects, object) };
+        });
+        setSelectedCharacterJoint(null);
+        setSelection({ kind: "object", id });
+    };
+
+    const duplicateObject = (id: string) => {
+        const source = scene.objects.find((item) => item.id === id);
+        if (!source) return;
+        const copy: DirectorObject = { ...source, id: `object-${nanoid()}`, name: `${source.name} 副本`, position: [source.position[0] + 1, source.position[1], source.position[2] + 0.5], locked: false };
+        changeScene((current) => ({ ...current, objects: placeDirectorLayer(current.objects, copy) }));
+        setSelectedCharacterJoint(null);
+        setSelection({ kind: "object", id: copy.id });
+    };
+
+    const toggleObjectVisibility = (id: string) => changeScene((current) => ({ ...current, objects: current.objects.map((object) => object.id === id ? { ...object, visible: object.visible === false } : object) }));
+    const toggleObjectLock = (id: string) => changeScene((current) => ({ ...current, objects: current.objects.map((object) => object.id === id ? { ...object, locked: !object.locked } : object) }));
+
+    const updateObjectRole = (id: string, role: DirectorLayerRole) => changeScene((current) => {
+        const ordered = sortDirectorLayers(current.objects);
+        const currentIndex = ordered.findIndex((object) => object.id === id);
+        if (currentIndex < 0) return current;
+        const [item] = ordered.splice(currentIndex, 1);
+        const nextItem = configureDirectorObjectRole(item, role, current.aspectRatio);
+        return { ...current, objects: placeDirectorLayer(ordered, nextItem) };
+    });
+
+    const addAsset = (asset: DirectorAsset, role: DirectorLayerRole, backgroundProjection: DirectorBackgroundProjection = "backdrop") => {
+        const id = `asset-${nanoid()}`;
+        const sourceWidth = asset.width || 1024;
+        const sourceHeight = asset.height || 1024;
+        const isBackground = role === "background";
+        const displaySize = directorAssetDisplaySize(role, scene.aspectRatio, sourceWidth, sourceHeight);
+        const object: DirectorObject = {
+            id,
+            name: asset.title,
+            primitive: role === "character" ? "character" : asset.kind,
+            assetKind: asset.kind,
+            sourceNodeId: asset.nodeId,
+            assetUrl: asset.url,
+            storageKey: asset.storageKey,
+            assetMimeType: asset.mimeType,
+            assetWidth: sourceWidth,
+            assetHeight: sourceHeight,
+            displaySize,
+            fit: isBackground ? "cover" : "contain",
+            role,
+            layerOrder: isBackground ? 0 : (scene.objects.length + 1) * 10,
+            position: isBackground ? [0, 4, -8] : [0, role === "character" ? 0 : 0.65, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: asset.kind === "image" ? "#ffffff" : "#558b82",
+            opacity: 1,
+            visible: true,
+            locked: false,
+            backgroundProjection,
+            ...(role === "character" ? { characterRig: createDirectorCharacterRig() } : {}),
+        };
+        changeScene((current) => {
+            if (role === "character") return replaceDefaultDirectorCharacter(current, object);
+            return { ...current, objects: placeDirectorLayer(current.objects, object) };
+        });
+        setSelectedCharacterJoint(null);
         setSelection({ kind: "object", id });
     };
 
@@ -123,8 +203,12 @@ export function DirectorStudio({ initialScene, onClose, onSave, onExportImage, o
         try {
             const model = await uploadMediaFile(file, "model");
             const id = `object-${nanoid()}`;
-            const object: DirectorObject = { id, name: file.name.replace(/\.(?:glb|gltf)$/i, ""), primitive: "model", position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: "#c1c7c8", modelUrl: model.url, storageKey: model.storageKey };
-            changeScene({ ...scene, objects: [...scene.objects, object] });
+            const object: DirectorObject = { id, name: file.name.replace(/\.(?:glb|gltf)$/i, ""), primitive: "model", role: "prop", position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: "#c1c7c8", visible: true, locked: false, modelUrl: model.url, storageKey: model.storageKey };
+            changeScene((current) => {
+                const cleaned = removeDefaultDirectorPlaceholders(current);
+                return { ...cleaned, objects: placeDirectorLayer(cleaned.objects, object) };
+            });
+            setSelectedCharacterJoint(null);
             setSelection({ kind: "object", id });
         } catch (error) { message.error(error instanceof Error ? error.message : "模型读取失败"); }
     };
@@ -132,7 +216,7 @@ export function DirectorStudio({ initialScene, onClose, onSave, onExportImage, o
     const addCamera = () => {
         const id = `camera-${nanoid()}`;
         const camera: DirectorCamera = { ...evaluatedCamera, id, name: `机位 ${scene.cameras.length + 1}` };
-        changeScene({ ...scene, cameras: [...scene.cameras, camera] });
+        changeScene((current) => ({ ...current, cameras: [...current.cameras, camera] }));
         setSelection({ kind: "camera", id });
     };
 
@@ -140,7 +224,7 @@ export function DirectorStudio({ initialScene, onClose, onSave, onExportImage, o
         const start = Math.min(playhead, Math.max(0, scene.duration - 1));
         const id = `shot-${nanoid()}`;
         const shot: DirectorShot = { id, name: `镜头 ${scene.shots.length + 1}`, cameraId: evaluatedCamera.id, start, end: Math.min(scene.duration, start + Math.min(3, scene.duration)), movement: "static" };
-        changeScene({ ...scene, shots: [...scene.shots, shot].sort((left, right) => left.start - right.start) });
+        changeScene((current) => ({ ...current, shots: [...current.shots, shot].sort((left, right) => left.start - right.start) }));
         setSelection({ kind: "shot", id });
     };
 
@@ -150,46 +234,90 @@ export function DirectorStudio({ initialScene, onClose, onSave, onExportImage, o
         message.success(`已在 ${playhead.toFixed(2)}s 记录关键帧`);
     };
 
-    const deleteSelection = () => {
-        if (selection.kind === "object") changeScene({ ...scene, objects: scene.objects.filter((item) => item.id !== selection.id), keyframes: scene.keyframes.filter((item) => item.targetId !== selection.id) });
-        if (selection.kind === "camera") {
-            if (scene.cameras.length <= 1) return void message.warning("至少保留一个机位");
-            const fallback = scene.cameras.find((item) => item.id !== selection.id)!;
-            changeScene({ ...scene, cameras: scene.cameras.filter((item) => item.id !== selection.id), shots: scene.shots.map((shot) => shot.cameraId === selection.id ? { ...shot, cameraId: fallback.id } : shot), keyframes: scene.keyframes.filter((item) => item.targetId !== selection.id) });
+    const deleteSelection = (target: Selection = selection) => {
+        if (!target.id) return;
+        if (target.kind === "object") {
+            const objects = scene.objects.filter((item) => item.id !== target.id);
+            changeScene({ ...scene, objects, keyframes: scene.keyframes.filter((item) => item.targetId !== target.id) });
+            setSelection({ kind: "object", id: objects[0]?.id || "" });
+            setSelectedCharacterJoint(null);
+            return;
         }
-        if (selection.kind === "shot") changeScene({ ...scene, shots: scene.shots.filter((item) => item.id !== selection.id) });
-        if (selection.kind === "keyframe") changeScene({ ...scene, keyframes: scene.keyframes.filter((item) => item.id !== selection.id) });
-        setSelection({ kind: "object", id: scene.objects.find((item) => item.id !== selection.id)?.id || "" });
+        if (target.kind === "camera") {
+            if (scene.cameras.length <= 1) return void message.warning("至少保留一个机位");
+            const fallback = scene.cameras.find((item) => item.id !== target.id)!;
+            const cameras = scene.cameras.filter((item) => item.id !== target.id);
+            changeScene({ ...scene, cameras, shots: scene.shots.map((shot) => shot.cameraId === target.id ? { ...shot, cameraId: fallback.id } : shot), keyframes: scene.keyframes.filter((item) => item.targetId !== target.id) });
+            setSelection({ kind: "camera", id: cameras[0]?.id || "" });
+            return;
+        }
+        if (target.kind === "shot") {
+            const shots = scene.shots.filter((item) => item.id !== target.id);
+            changeScene({ ...scene, shots });
+            setSelection({ kind: "shot", id: shots[0]?.id || "" });
+            return;
+        }
+        if (target.kind === "keyframe") {
+            const keyframes = scene.keyframes.filter((item) => item.id !== target.id);
+            changeScene({ ...scene, keyframes });
+            setSelection({ kind: "object", id: scene.objects[0]?.id || "" });
+        }
     };
 
-    const leftPanel = <ScenePanel scene={scene} selection={selection} onSelect={setSelection} onSceneChange={changeScene} onAddObject={addObject} onUploadModel={uploadModel} onAddCamera={addCamera} onAddShot={addShot} />;
-    const inspector = <Inspector scene={scene} selection={selection} object={selectedObject} camera={selectedCamera} shot={selectedShot} keyframe={selectedKeyframe} playhead={playhead} onSceneChange={changeScene} onUpdateObject={updateObject} onUpdateCamera={updateCamera} onRecordKeys={recordKeys} onDelete={deleteSelection} />;
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.matches("input, textarea, [contenteditable='true']")) return;
+            const key = event.key.toLowerCase();
+            if (key === "w" || key === "e" || key === "r") {
+                event.preventDefault();
+                setTransformMode(key === "w" ? "translate" : key === "e" ? "rotate" : "scale");
+            } else if ((event.metaKey || event.ctrlKey) && key === "d" && selection.kind === "object") {
+                event.preventDefault();
+                duplicateObject(selection.id);
+            } else if (event.key === "Delete" || event.key === "Backspace") {
+                event.preventDefault();
+                deleteSelection();
+            } else if (event.key === "Escape") {
+                event.preventDefault();
+                if (selectedCharacterJoint) setSelectedCharacterJoint(null);
+                else setSelection({ kind: "object", id: "" });
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [deleteSelection, duplicateObject, selectedCharacterJoint, selection]);
+
+    const leftPanel = <ScenePanel scene={scene} assets={assets} selection={selection} onSelect={setSelection} onSceneChange={changeScene} onAddObject={addObject} onAddAsset={addAsset} onUploadModel={uploadModel} onAddCamera={addCamera} onAddShot={addShot} onDuplicateObject={duplicateObject} onToggleObjectVisibility={toggleObjectVisibility} onToggleObjectLock={toggleObjectLock} onUpdateObjectRole={updateObjectRole} onDelete={deleteSelection} />;
+    const inspector = <Inspector scene={scene} selection={selection} object={selectedObject} camera={selectedCamera} shot={selectedShot} keyframe={selectedKeyframe} playhead={playhead} selectedCharacterJoint={selectedCharacterJoint} onSelectCharacterJoint={setSelectedCharacterJoint} onSceneChange={changeScene} onUpdateObject={updateObject} onUpdateCamera={updateCamera} onUpdateObjectRole={updateObjectRole} onRecordKeys={recordKeys} onDelete={deleteSelection} />;
 
     return (
         <div className="fixed inset-0 z-[1000] grid grid-rows-[52px_minmax(0,1fr)_168px] overflow-hidden bg-[#202124] text-white" data-canvas-no-zoom>
             <header className="flex min-w-0 items-center gap-2 border-b border-white/10 bg-[#191a1c] px-2 sm:px-3">
                 <Tooltip title="返回画布"><Button type="text" shape="circle" className="!text-white/75 hover:!text-white" icon={<ArrowLeft className="size-4" />} onClick={close} /></Tooltip>
                 <Clapperboard className="size-4 shrink-0 text-[#ff8066]" />
+                <span className="hidden text-xs font-semibold text-white/85 sm:inline">3D 导演台</span>
                 <Input variant="borderless" value={scene.name} className="!min-w-24 !max-w-60 !text-sm !font-medium !text-white" onChange={(event) => changeScene({ ...scene, name: event.target.value })} />
                 <span className="hidden text-[11px] text-white/35 sm:inline">{dirty ? "未保存" : "已保存"}</span>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
-                    <div className="hidden items-center gap-1 lg:flex"><Select size="small" value={scene.aspectRatio} popupMatchSelectWidth={false} options={["16:9", "9:16", "1:1", "4:3", "3:4"].map((value) => ({ value, label: value }))} onChange={(aspectRatio) => changeScene({ ...scene, aspectRatio })} /><InputNumber size="small" min={1} max={120} value={scene.duration} addonAfter="s" className="w-24" onChange={(duration) => duration && changeScene({ ...scene, duration })} /></div>
-                    <Tooltip title="场景与对象"><Button type="text" className="!text-white/75 lg:!hidden" icon={<Menu className="size-4" />} onClick={() => setLeftDrawer(true)} /></Tooltip>
-                    <Tooltip title="属性"><Button type="text" className="!text-white/75 lg:!hidden" icon={<SlidersHorizontal className="size-4" />} onClick={() => setRightDrawer(true)} /></Tooltip>
+                    <div className="hidden items-center gap-1 xl:flex"><Select size="small" value={scene.aspectRatio} popupMatchSelectWidth={false} options={["16:9", "9:16", "1:1", "4:3", "3:4"].map((value) => ({ value, label: value }))} onChange={(aspectRatio) => changeScene(resizeDirectorSceneAspectRatio(scene, aspectRatio))} /><div className="flex items-center border border-white/10 bg-black/15"><InputNumber size="small" min={1} max={120} value={scene.duration} variant="borderless" className="w-16" onChange={(duration) => duration && changeScene({ ...scene, duration })} /><span className="pr-2 text-[10px] text-white/45">s</span></div></div>
+                    <Tooltip title="场景与对象"><Button type="text" className="!text-white/75 xl:!hidden" icon={<Menu className="size-4" />} onClick={() => setLeftDrawer(true)} /></Tooltip>
+                    <Tooltip title="属性"><Button type="text" className="!text-white/75 xl:!hidden" icon={<SlidersHorizontal className="size-4" />} onClick={() => setRightDrawer(true)} /></Tooltip>
                     <Tooltip title="输出当前机位"><Button type="text" className="!text-white/75" loading={exporting} icon={<ImageIcon className="size-4" />} onClick={() => void capture()} /></Tooltip>
                     <Tooltip title="输出 Seedance 运镜提示词"><Button type="text" className="!text-white/75" icon={<Sparkles className="size-4" />} onClick={exportPrompt} /></Tooltip>
                     <Button type="primary" size="small" icon={<Save className="size-3.5" />} onClick={save}>保存</Button>
                 </div>
             </header>
 
-            <div className="grid min-h-0 lg:grid-cols-[240px_minmax(0,1fr)_288px]">
-                <aside className="hidden min-h-0 overflow-y-auto border-r border-white/10 bg-[#1c1d1f] lg:block">{leftPanel}</aside>
+            <div className="grid min-h-0 xl:grid-cols-[240px_minmax(0,1fr)_288px]">
+                <aside className="hidden min-h-0 overflow-y-auto border-r border-white/10 bg-[#1c1d1f] xl:block">{leftPanel}</aside>
                 <main className="relative min-h-0 overflow-hidden bg-[#111214]">
-                    <DirectorViewport scene={scene} playhead={playhead} playing={playing} selectedObjectId={selection.kind === "object" ? selection.id : ""} transformMode={transformMode} onSelectObject={(id) => id && setSelection({ kind: "object", id })} onObjectTransform={(id, transform) => updateObject(id, transform, true)} onCameraChange={updateCurrentShotCamera} onCanvasReady={(canvas) => { canvasRef.current = canvas; }} />
-                    <div className="absolute left-3 top-3 flex gap-1 bg-black/45 p-1 backdrop-blur-sm"><ToolButton title="移动" active={transformMode === "translate"} onClick={() => setTransformMode("translate")}><Move3d /></ToolButton><ToolButton title="旋转" active={transformMode === "rotate"} onClick={() => setTransformMode("rotate")}><Rotate3d /></ToolButton><ToolButton title="缩放" active={transformMode === "scale"} onClick={() => setTransformMode("scale")}><Scaling /></ToolButton></div>
-                    <div className="pointer-events-none absolute inset-x-0 top-3 text-center"><span className="bg-black/45 px-2 py-1 text-[10px] text-white/70 backdrop-blur-sm">{sceneAtTime(scene, playhead).shot?.name || "自由机位"} · {playhead.toFixed(2)}s</span></div>
+                    <DirectorViewport scene={scene} playhead={playhead} playing={playing} selectedObjectId={selection.kind === "object" ? selection.id : ""} selectedCameraId={selection.kind === "camera" ? selection.id : ""} selectedCharacterJoint={selectedCharacterJoint} viewMode={viewMode} viewResetKey={viewResetKey} transformMode={transformMode} onSelectObject={(id) => { setSelectedCharacterJoint(null); setSelection({ kind: "object", id }); }} onSelectCamera={(id) => { setSelectedCharacterJoint(null); setSelection({ kind: "camera", id }); }} onSelectCharacterJoint={setSelectedCharacterJoint} onObjectTransform={(id, transform) => updateObject(id, transform, true)} onCameraTransform={(id, camera) => updateCamera(id, camera, true)} onCharacterJointTransform={updateCharacterJoint} onCameraChange={updateCurrentShotCamera} onCanvasReady={(canvas) => { canvasRef.current = canvas; }} />
+                    <div className="absolute left-1/2 top-3 flex -translate-x-1/2 border border-white/10 bg-black/60 p-0.5 backdrop-blur-sm"><button type="button" onClick={() => setViewMode("director")} className={`h-7 px-3 text-[11px] transition ${viewMode === "director" ? "bg-white/15 text-white" : "text-white/45 hover:text-white"}`}>导演视角</button><button type="button" onClick={() => setViewMode("camera")} className={`h-7 px-3 text-[11px] transition ${viewMode === "camera" ? "bg-white/15 text-white" : "text-white/45 hover:text-white"}`}>机位视角</button></div>
+                    <div className="absolute left-3 top-3 flex gap-1 bg-black/55 p-1 backdrop-blur-sm"><TransformModeButton label="移动" shortcut="W" active={transformMode === "translate"} onClick={() => setTransformMode("translate")}><Move3d /></TransformModeButton><TransformModeButton label="旋转" shortcut="E" active={transformMode === "rotate"} onClick={() => setTransformMode("rotate")}><Rotate3d /></TransformModeButton><TransformModeButton label="缩放" shortcut="R" active={transformMode === "scale"} onClick={() => setTransformMode("scale")}><Scaling /></TransformModeButton><ToolButton title="适配全部对象" onClick={() => { setViewMode("director"); setViewResetKey((value) => value + 1); }}><Focus /></ToolButton></div>
+                    <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center"><span className="bg-black/45 px-2 py-1 text-[10px] text-white/70 backdrop-blur-sm">{sceneAtTime(scene, playhead).shot?.name || "自由机位"} · {playhead.toFixed(2)}s</span></div>
                 </main>
-                <aside className="hidden min-h-0 overflow-y-auto border-l border-white/10 bg-[#1c1d1f] lg:block">{inspector}</aside>
+                <aside className="hidden min-h-0 overflow-y-auto border-l border-white/10 bg-[#1c1d1f] xl:block">{inspector}</aside>
             </div>
 
             <section className="min-h-0 bg-[#18191b]">
@@ -202,16 +330,16 @@ export function DirectorStudio({ initialScene, onClose, onSave, onExportImage, o
                 <div className="h-[126px]"><DirectorTimeline scene={scene} playhead={playhead} selectedId={selection.id} onPlayheadChange={(time) => { setPlaying(false); setPlayhead(time); }} onSceneChange={changeScene} onSelect={(kind, id) => setSelection({ kind, id })} /></div>
             </section>
 
-            <Drawer title="场景与对象" placement="left" width={280} open={leftDrawer} onClose={() => setLeftDrawer(false)} styles={{ body: { padding: 0, background: "#1c1d1f", color: "white" }, header: { background: "#191a1c", color: "white", borderColor: "rgba(255,255,255,.1)" } }}>{leftPanel}</Drawer>
-            <Drawer title="属性" placement="right" width={300} open={rightDrawer} onClose={() => setRightDrawer(false)} styles={{ body: { padding: 0, background: "#1c1d1f", color: "white" }, header: { background: "#191a1c", color: "white", borderColor: "rgba(255,255,255,.1)" } }}>{inspector}</Drawer>
+            <Drawer title="场景与对象" placement="left" size={280} open={leftDrawer} onClose={() => setLeftDrawer(false)} styles={{ body: { padding: 0, background: "#1c1d1f", color: "white" }, header: { background: "#191a1c", color: "white", borderColor: "rgba(255,255,255,.1)" } }}>{leftPanel}</Drawer>
+            <Drawer title="属性" placement="right" size={300} open={rightDrawer} onClose={() => setRightDrawer(false)} styles={{ body: { padding: 0, background: "#1c1d1f", color: "white" }, header: { background: "#191a1c", color: "white", borderColor: "rgba(255,255,255,.1)" } }}>{inspector}</Drawer>
         </div>
     );
 }
 
-function ScenePanel({ scene, selection, onSelect, onSceneChange, onAddObject, onUploadModel, onAddCamera, onAddShot }: { scene: DirectorScene; selection: Selection; onSelect: (selection: Selection) => void; onSceneChange: (scene: DirectorScene) => void; onAddObject: (primitive: DirectorPrimitive) => void; onUploadModel: (file?: File) => void; onAddCamera: () => void; onAddShot: () => void }) {
+function ScenePanel({ scene, assets, selection, onSelect, onSceneChange, onAddObject, onAddAsset, onUploadModel, onAddCamera, onAddShot, onDuplicateObject, onToggleObjectVisibility, onToggleObjectLock, onUpdateObjectRole, onDelete }: { scene: DirectorScene; assets: DirectorAsset[]; selection: Selection; onSelect: (selection: Selection) => void; onSceneChange: (scene: DirectorScene) => void; onAddObject: (primitive: DirectorPrimitive) => void; onAddAsset: (asset: DirectorAsset, role: DirectorLayerRole, backgroundProjection?: DirectorBackgroundProjection) => void; onUploadModel: (file?: File) => void; onAddCamera: () => void; onAddShot: () => void; onDuplicateObject: (id: string) => void; onToggleObjectVisibility: (id: string) => void; onToggleObjectLock: (id: string) => void; onUpdateObjectRole: (id: string, role: DirectorLayerRole) => void; onDelete: (target?: Selection) => void }) {
     const modelInput = useRef<HTMLInputElement>(null);
     const addMenu = { items: [
-        { key: "character", icon: <UserRound className="size-4" />, label: "人物占位", onClick: () => onAddObject("character") },
+        { key: "character", icon: <UserRound className="size-4" />, label: "添加可摆姿态人物", onClick: () => onAddObject("character") },
         { key: "box", icon: <Box className="size-4" />, label: "方体道具", onClick: () => onAddObject("box") },
         { key: "sphere", icon: <Circle className="size-4" />, label: "球体道具", onClick: () => onAddObject("sphere") },
         { key: "cylinder", icon: <Cuboid className="size-4" />, label: "柱体道具", onClick: () => onAddObject("cylinder") },
@@ -219,41 +347,107 @@ function ScenePanel({ scene, selection, onSelect, onSceneChange, onAddObject, on
         { type: "divider" as const },
         { key: "model", icon: <Upload className="size-4" />, label: "导入 GLB 模型", onClick: () => modelInput.current?.click() },
     ] };
+    const orderedObjects = [...scene.objects].reverse();
     return <div className="p-3 text-white"><PanelHeading title="场景" icon={<Settings2 />} /><Select className="w-full" value={scene.environment} options={[{ value: "courtyard", label: "东方院落" }, { value: "studio", label: "摄影棚" }, { value: "mountain", label: "山地云海" }, { value: "desert", label: "荒漠" }, { value: "space", label: "太空" }]} onChange={(environment) => onSceneChange({ ...scene, environment })} /><label className="mt-3 flex items-center justify-between text-xs text-white/55"><span>背景色</span><input type="color" value={scene.background} onChange={(event) => onSceneChange({ ...scene, background: event.target.value })} className="h-7 w-10 cursor-pointer border-0 bg-transparent" /></label>
+        <div className="mt-3 border border-white/10 bg-white/[.03] px-2 py-2 text-[10px] text-white/50"><div className="flex items-center justify-between"><span>空间模式：3D 预演</span><span>{scene.objects.length} 个对象</span></div><div className="mt-2 grid grid-cols-3 gap-2"><StageToggle label="地面" checked={scene.stage.showGround} onChange={(showGround) => onSceneChange({ ...scene, stage: { ...scene.stage, showGround } })} /><StageToggle label="网格" checked={scene.stage.showGrid} onChange={(showGrid) => onSceneChange({ ...scene, stage: { ...scene.stage, showGrid } })} /><StageToggle label="标签" checked={scene.stage.showLabels} onChange={(showLabels) => onSceneChange({ ...scene, stage: { ...scene.stage, showLabels } })} /></div></div>
+        <details className="mt-2 border border-white/10 bg-white/[.02]"><summary className="cursor-pointer select-none px-2 py-2 text-[10px] text-white/55">3D 场景整体变换</summary><div className="border-t border-white/10 px-2 pb-2"><VectorField label="场景平移" value={scene.stage.scenePosition} onChange={(scenePosition) => onSceneChange({ ...scene, stage: { ...scene.stage, scenePosition } })} /><DegreeVectorField label="场景旋转" value={scene.stage.sceneRotation} onChange={(sceneRotation) => onSceneChange({ ...scene, stage: { ...scene.stage, sceneRotation } })} /><FieldLabel>场景缩放</FieldLabel><div className="grid grid-cols-[1fr_64px] items-center gap-2"><Slider min={0.1} max={5} step={0.01} value={scene.stage.sceneScale} onChange={(sceneScale) => onSceneChange({ ...scene, stage: { ...scene.stage, sceneScale } })} /><InputNumber controls={false} min={0.1} max={10} step={0.01} value={scene.stage.sceneScale} onChange={(sceneScale) => sceneScale !== null && onSceneChange({ ...scene, stage: { ...scene.stage, sceneScale } })} /></div></div></details>
         <Divider className="!border-white/10" />
-        <PanelHeading title="人物与道具" icon={<Cuboid />} action={<Dropdown menu={addMenu} trigger={["click"]}><Button type="text" size="small" className="!text-white/70" icon={<Plus className="size-4" />} /></Dropdown>} />
+        <PanelHeading title="画布素材" icon={<ImageIcon />} />
+        {assets.length ? <div className="space-y-1">{assets.map((asset) => <AssetRow key={asset.id} asset={asset} onAdd={(role, projection) => onAddAsset(asset, role, projection)} />)}</div> : <div className="border border-dashed border-white/10 px-2 py-3 text-[10px] text-white/35">当前画布没有可用图片或视频产物。先在画布生成/上传，再回到导演台插入。</div>}
+        <Divider className="!border-white/10" />
+        <PanelHeading title="场景对象" icon={<Cuboid />} />
+        {orderedObjects.length ? <div className="space-y-0.5">{orderedObjects.map((object) => <ListRow key={object.id} active={selection.kind === "object" && selection.id === object.id} icon={object.assetKind === "image" ? <ImageIcon /> : object.assetKind === "video" ? <Video /> : object.primitive === "character" ? <UserRound /> : object.primitive === "model" ? <Download /> : <Box />} title={object.name} meta={directorLayerRoleLabel(object.role)} onClick={() => onSelect({ kind: "object", id: object.id })} actions={<>
+            <RowAction title="复制对象" onClick={() => onDuplicateObject(object.id)}><Copy /></RowAction>
+            <RowAction title={object.visible === false ? "显示对象" : "隐藏对象"} onClick={() => onToggleObjectVisibility(object.id)}>{object.visible === false ? <EyeOff /> : <Eye />}</RowAction>
+            <RowAction title={object.locked ? "解锁对象" : "锁定对象"} active={object.locked} onClick={() => onToggleObjectLock(object.id)}>{object.locked ? <Lock /> : <Unlock />}</RowAction>
+            <RowAction title="删除对象" danger onClick={() => onDelete({ kind: "object", id: object.id })}><Trash2 /></RowAction>
+        </>} />)}</div> : <div className="text-[10px] text-white/35">暂无对象</div>}
+        <Divider className="!border-white/10" />
+        <PanelHeading title="人物与道具" icon={<Cuboid />} action={<Dropdown menu={addMenu} trigger={["click"]}><Button type="text" size="small" className="!text-white/70" icon={<Plus className="size-4" />}>添加对象</Button></Dropdown>} />
         <input ref={modelInput} hidden type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" onChange={(event) => { void onUploadModel(event.target.files?.[0]); event.currentTarget.value = ""; }} />
-        <div className="space-y-0.5">{scene.objects.map((object) => <ListRow key={object.id} active={selection.kind === "object" && selection.id === object.id} icon={object.primitive === "character" ? <UserRound /> : object.primitive === "model" ? <Download /> : <Box />} title={object.name} meta={object.primitive === "model" ? "GLB" : object.primitive} onClick={() => onSelect({ kind: "object", id: object.id })} />)}</div>
+        <PanelHeading title="机位" icon={<Camera />} action={<Button type="text" size="small" className="!text-white/70" icon={<Plus className="size-4" />} onClick={onAddCamera}>添加机位</Button>} />
+        <div className="space-y-0.5">{scene.cameras.map((camera) => <ListRow key={camera.id} active={selection.kind === "camera" && selection.id === camera.id} icon={<Camera />} title={camera.name} meta={`${camera.fov}°`} onClick={() => onSelect({ kind: "camera", id: camera.id })} actions={<RowAction title="删除机位" danger disabled={scene.cameras.length <= 1} onClick={() => onDelete({ kind: "camera", id: camera.id })}><Trash2 /></RowAction>} />)}</div>
         <Divider className="!border-white/10" />
-        <PanelHeading title="机位" icon={<Camera />} action={<Button type="text" size="small" className="!text-white/70" icon={<Plus className="size-4" />} onClick={onAddCamera} />} />
-        <div className="space-y-0.5">{scene.cameras.map((camera) => <ListRow key={camera.id} active={selection.kind === "camera" && selection.id === camera.id} icon={<Camera />} title={camera.name} meta={`${camera.fov}°`} onClick={() => onSelect({ kind: "camera", id: camera.id })} />)}</div>
-        <Divider className="!border-white/10" />
-        <PanelHeading title="镜头" icon={<Video />} action={<Button type="text" size="small" className="!text-white/70" icon={<Plus className="size-4" />} onClick={onAddShot} />} />
-        <div className="space-y-0.5">{[...scene.shots].sort((a, b) => a.start - b.start).map((shot) => <ListRow key={shot.id} active={selection.kind === "shot" && selection.id === shot.id} icon={<Film />} title={shot.name} meta={`${shot.start.toFixed(1)}-${shot.end.toFixed(1)}s`} onClick={() => onSelect({ kind: "shot", id: shot.id })} />)}</div>
+        <PanelHeading title="镜头" icon={<Video />} action={<Button type="text" size="small" className="!text-white/70" icon={<Plus className="size-4" />} onClick={onAddShot}>新增镜头</Button>} />
+        <div className="space-y-0.5">{[...scene.shots].sort((a, b) => a.start - b.start).map((shot) => <ListRow key={shot.id} active={selection.kind === "shot" && selection.id === shot.id} icon={<Film />} title={shot.name} meta={`${shot.start.toFixed(1)}-${shot.end.toFixed(1)}s`} onClick={() => onSelect({ kind: "shot", id: shot.id })} actions={<RowAction title="删除镜头" danger onClick={() => onDelete({ kind: "shot", id: shot.id })}><Trash2 /></RowAction>} />)}</div>
     </div>;
 }
 
-function Inspector({ scene, selection, object, camera, shot, keyframe, playhead, onSceneChange, onUpdateObject, onUpdateCamera, onRecordKeys, onDelete }: { scene: DirectorScene; selection: Selection; object?: DirectorObject; camera?: DirectorCamera; shot?: DirectorShot; keyframe?: DirectorKeyframe; playhead: number; onSceneChange: (scene: DirectorScene) => void; onUpdateObject: (id: string, patch: Partial<DirectorObject>) => void; onUpdateCamera: (id: string, patch: Partial<DirectorCamera>) => void; onRecordKeys: () => void; onDelete: () => void }) {
+function AssetRow({ asset, onAdd }: { asset: DirectorAsset; onAdd: (role: DirectorLayerRole, projection?: DirectorBackgroundProjection) => void }) {
+    return <div className="border border-white/5 bg-white/[.025] p-1.5">
+        <div className="flex items-center gap-2">
+            <div className="size-10 shrink-0 overflow-hidden bg-black/25">{asset.kind === "image" && asset.url ? <img src={asset.url} alt="" className="size-full object-cover" /> : asset.kind === "video" ? <Video className="m-2.5 size-5 text-white/45" /> : <ImageIcon className="m-2.5 size-5 text-white/45" />}</div>
+            <div className="min-w-0 flex-1"><div className="truncate text-[10px] text-white/70" title={asset.title}>{asset.title}</div><div className="mt-0.5 text-[9px] text-white/30">{asset.kind === "video" ? "视频" : "图片"}{asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ""}</div></div>
+        </div>
+        <div className="mt-1.5 grid grid-cols-[1fr_1fr_28px] gap-1">
+            <Button type="text" size="small" aria-label="作为平面布景加入" className={`!h-7 !px-1 !text-[10px] ${asset.suggestedRole === "background" ? "!text-[#ff8066]" : "!text-white/55"}`} icon={<Layers3 className="size-3" />} onClick={() => onAdd("background", "backdrop")}>布景</Button>
+            <Button type="text" size="small" aria-label="绑定到可摆姿态人物" className={`!h-7 !px-1 !text-[10px] ${asset.suggestedRole === "character" ? "!text-[#ff8066]" : "!text-white/55"}`} icon={<UserRound className="size-3" />} onClick={() => onAdd("character")}>人物</Button>
+            <Dropdown menu={{ items: [{ key: "panorama", label: "作为 720° 全景加入", onClick: () => onAdd("background", "panorama") }, ...(["prop", "foreground", "effect"] as DirectorLayerRole[]).map((role) => ({ key: role, label: `作为${directorLayerRoleLabel(role)}加入`, onClick: () => onAdd(role) }))] }} trigger={["click"]}><Button type="text" size="small" aria-label="更多素材用法" className="!px-1 !text-white/45">···</Button></Dropdown>
+        </div>
+    </div>;
+}
+
+function Inspector({ scene, selection, object, camera, shot, keyframe, playhead, selectedCharacterJoint, onSelectCharacterJoint, onSceneChange, onUpdateObject, onUpdateCamera, onUpdateObjectRole, onRecordKeys, onDelete }: { scene: DirectorScene; selection: Selection; object?: DirectorObject; camera?: DirectorCamera; shot?: DirectorShot; keyframe?: DirectorKeyframe; playhead: number; selectedCharacterJoint: DirectorCharacterJoint | null; onSelectCharacterJoint: (joint: DirectorCharacterJoint | null) => void; onSceneChange: (scene: DirectorScene) => void; onUpdateObject: (id: string, patch: Partial<DirectorObject>) => void; onUpdateCamera: (id: string, patch: Partial<DirectorCamera>) => void; onUpdateObjectRole: (id: string, role: DirectorLayerRole) => void; onRecordKeys: () => void; onDelete: () => void }) {
     if (!object && !camera && !shot && !keyframe) return <div className="p-5 text-sm text-white/45">选择对象、机位、镜头或关键帧进行编辑。</div>;
     const updateShot = (patch: Partial<DirectorShot>) => shot && onSceneChange({ ...scene, shots: scene.shots.map((item) => item.id === shot.id ? { ...item, ...patch } : item) });
     const updateKeyframe = (patch: Partial<DirectorKeyframe>) => keyframe && onSceneChange({ ...scene, keyframes: scene.keyframes.map((item) => item.id === keyframe.id ? { ...item, ...patch } : item) });
     return <div className="p-4 text-white"><PanelHeading title="属性" icon={<SlidersHorizontal />} />
-        {object ? <><FieldLabel>名称</FieldLabel><Input value={object.name} onChange={(event) => onUpdateObject(object.id, { name: event.target.value })} /><div className="mt-4 grid grid-cols-[1fr_44px] items-end gap-2"><div><FieldLabel>颜色</FieldLabel><Input value={object.color} onChange={(event) => onUpdateObject(object.id, { color: event.target.value })} /></div><input type="color" value={object.color} onChange={(event) => onUpdateObject(object.id, { color: event.target.value })} className="h-8 w-11" /></div><VectorField label="位置" value={object.position} onChange={(position) => onUpdateObject(object.id, { position })} /><VectorField label="旋转（弧度）" value={object.rotation} step={0.05} onChange={(rotation) => onUpdateObject(object.id, { rotation })} /><VectorField label="缩放" value={object.scale} step={0.1} min={0.01} onChange={(scale) => onUpdateObject(object.id, { scale })} /></> : null}
-        {camera ? <><FieldLabel>名称</FieldLabel><Input value={camera.name} onChange={(event) => onUpdateCamera(camera.id, { name: event.target.value })} /><VectorField label="机位" value={camera.position} onChange={(position) => onUpdateCamera(camera.id, { position })} /><VectorField label="看向" value={camera.target} onChange={(target) => onUpdateCamera(camera.id, { target })} /><FieldLabel>视场角</FieldLabel><InputNumber className="w-full" min={15} max={100} value={camera.fov} addonAfter="°" onChange={(fov) => fov && onUpdateCamera(camera.id, { fov })} /></> : null}
+        {object ? <><FieldLabel>名称</FieldLabel><Input value={object.name} onChange={(event) => onUpdateObject(object.id, { name: event.target.value })} /><FieldLabel>对象类型</FieldLabel><Select className="w-full" value={object.role || "prop"} options={(["background", "character", "prop", "foreground", "effect"] as DirectorLayerRole[]).map((role) => ({ value: role, label: directorLayerRoleLabel(role) }))} onChange={(role) => onUpdateObjectRole(object.id, role)} />{object.primitive === "character" ? <CharacterInspector object={object} selectedJoint={selectedCharacterJoint} onSelectJoint={onSelectCharacterJoint} onUpdate={(patch) => onUpdateObject(object.id, patch)} /> : object.assetKind ? <AssetInspector scene={scene} object={object} onSceneChange={onSceneChange} onUpdate={(patch) => onUpdateObject(object.id, patch)} /> : <div className="mt-4 grid grid-cols-[1fr_44px] items-end gap-2"><div><FieldLabel>颜色</FieldLabel><Input value={object.color} onChange={(event) => onUpdateObject(object.id, { color: event.target.value })} /></div><input type="color" value={object.color} onChange={(event) => onUpdateObject(object.id, { color: event.target.value })} className="h-8 w-11" /></div>}<VectorField label="位置" value={object.position} onChange={(position) => onUpdateObject(object.id, { position })} /><DegreeVectorField label="整体旋转" value={object.rotation} onChange={(rotation) => onUpdateObject(object.id, { rotation })} /><VectorField label="缩放" value={object.scale} step={0.1} min={0.01} onChange={(scale) => onUpdateObject(object.id, { scale })} /></> : null}
+        {camera ? <><div className="mb-3 aspect-video overflow-hidden border border-white/10 bg-black"><DirectorCameraPreview scene={scene} cameraId={camera.id} playhead={playhead} /></div><FieldLabel>名称</FieldLabel><Input value={camera.name} onChange={(event) => onUpdateCamera(camera.id, { name: event.target.value })} /><VectorField label="机位位置" value={camera.position} onChange={(position) => onUpdateCamera(camera.id, { position })} /><VectorField label="注视坐标" value={camera.target} onChange={(target) => onUpdateCamera(camera.id, { target })} /><FieldLabel>视场角（FOV）</FieldLabel><div className="grid grid-cols-[1fr_72px] items-center gap-3"><Slider min={15} max={100} value={camera.fov} onChange={(fov) => onUpdateCamera(camera.id, { fov })} /><div className="flex items-center border border-white/10"><InputNumber controls={false} min={15} max={100} value={camera.fov} variant="borderless" className="min-w-0 flex-1" onChange={(fov) => fov && onUpdateCamera(camera.id, { fov })} /><span className="pr-2 text-[10px] text-white/45">°</span></div></div></> : null}
         {shot ? <><FieldLabel>镜头名称</FieldLabel><Input value={shot.name} onChange={(event) => updateShot({ name: event.target.value })} /><FieldLabel>使用机位</FieldLabel><Select className="w-full" value={shot.cameraId} options={scene.cameras.map((item) => ({ value: item.id, label: item.name }))} onChange={(cameraId) => updateShot({ cameraId })} /><div className="grid grid-cols-2 gap-2"><div><FieldLabel>开始</FieldLabel><InputNumber className="w-full" min={0} max={scene.duration} step={1 / scene.fps} value={shot.start} onChange={(start) => start !== null && updateShot({ start })} /></div><div><FieldLabel>结束</FieldLabel><InputNumber className="w-full" min={0} max={scene.duration} step={1 / scene.fps} value={shot.end} onChange={(end) => end !== null && updateShot({ end })} /></div></div><FieldLabel>运镜</FieldLabel><Select className="w-full" value={shot.movement} options={[{ value: "static", label: "固定" }, { value: "push-in", label: "推近" }, { value: "pull-out", label: "拉远" }, { value: "pan-left", label: "左摇" }, { value: "pan-right", label: "右摇" }, { value: "orbit", label: "环绕" }, { value: "follow", label: "跟随" }]} onChange={(movement) => updateShot({ movement })} /><FieldLabel>镜头意图</FieldLabel><Input.TextArea rows={4} value={shot.description} onChange={(event) => updateShot({ description: event.target.value })} /></> : null}
         {keyframe ? <><FieldLabel>时间</FieldLabel><InputNumber className="w-full" min={0} max={scene.duration} step={1 / scene.fps} value={keyframe.time} onChange={(time) => time !== null && updateKeyframe({ time })} /><FieldLabel>属性</FieldLabel><Input value={`${keyframe.targetType} / ${keyframe.property}`} disabled /><FieldLabel>数值</FieldLabel><Input value={keyframe.value.join(", ")} onChange={(event) => updateKeyframe({ value: event.target.value.split(",").map(Number).filter(Number.isFinite) })} /></> : null}
         <Divider className="!border-white/10" />
         {(selection.kind === "object" || selection.kind === "camera") ? <Button block icon={<KeyRound className="size-4" />} onClick={onRecordKeys}>在 {playhead.toFixed(2)}s 记录关键帧</Button> : null}
-        <Button block danger type="text" className="!mt-2" icon={<Trash2 className="size-4" />} onClick={onDelete}>删除{selection.kind === "shot" ? "镜头" : selection.kind === "keyframe" ? "关键帧" : "对象"}</Button>
+        <Button block danger type="text" className="!mt-2" icon={<Trash2 className="size-4" />} onClick={() => onDelete()}>删除{selection.kind === "shot" ? "镜头" : selection.kind === "keyframe" ? "关键帧" : selection.kind === "camera" ? "机位" : "对象"}</Button>
     </div>;
 }
 
+const POSE_OPTIONS: Array<{ value: Exclude<DirectorCharacterPosePreset, "custom">; label: string }> = [
+    { value: "stand", label: "站立" }, { value: "t-pose", label: "T 型" }, { value: "walk", label: "行走" }, { value: "run", label: "跑步" }, { value: "sit", label: "坐姿" },
+    { value: "crouch", label: "蹲下" }, { value: "kneel", label: "跪姿" }, { value: "double-kneel", label: "双膝跪" }, { value: "fight", label: "格斗" }, { value: "hands-hips", label: "叉腰" },
+    { value: "hook-punch", label: "勾拳" }, { value: "kick", label: "踢腿" }, { value: "think", label: "思考" }, { value: "kick-ball", label: "踢球" }, { value: "throw", label: "投掷" },
+    { value: "bow", label: "鞠躬" }, { value: "wave", label: "挥手" }, { value: "arms-crossed", label: "抱臂" }, { value: "phone", label: "看手机" }, { value: "point", label: "指向" }, { value: "reach", label: "伸手" },
+];
+
+const JOINT_GROUPS: Array<{ title: string; joints: Array<{ value: DirectorCharacterJoint; label: string }> }> = [
+    { title: "躯干与头部", joints: [{ value: "body", label: "躯干" }, { value: "head", label: "头部" }] },
+    { title: "手臂", joints: [{ value: "leftUpperArm", label: "左上臂" }, { value: "leftForearm", label: "左前臂" }, { value: "rightUpperArm", label: "右上臂" }, { value: "rightForearm", label: "右前臂" }] },
+    { title: "腿部", joints: [{ value: "leftThigh", label: "左大腿" }, { value: "leftCalf", label: "左小腿" }, { value: "rightThigh", label: "右大腿" }, { value: "rightCalf", label: "右小腿" }] },
+];
+
+function CharacterInspector({ object, selectedJoint, onSelectJoint, onUpdate }: { object: DirectorObject; selectedJoint: DirectorCharacterJoint | null; onSelectJoint: (joint: DirectorCharacterJoint | null) => void; onUpdate: (patch: Partial<DirectorObject>) => void }) {
+    const rig = object.characterRig || createDirectorCharacterRig();
+    return <>
+        {object.assetKind ? <div className="mt-3 flex items-center gap-2 border border-[#4e9bff]/25 bg-[#4e9bff]/10 p-2"><div className="size-10 shrink-0 overflow-hidden bg-black/30">{object.assetUrl ? <img src={object.assetUrl} alt="人物身份参考" className="size-full object-cover" /> : <UserRound className="m-2.5 size-5 text-white/55" />}</div><div className="min-w-0"><div className="text-[10px] text-white/75">已绑定人物身份参考</div><div className="mt-0.5 truncate text-[9px] text-white/35">姿态由 3D 素体控制，身份与服装沿用此图</div></div></div> : null}
+        <FieldLabel>素体</FieldLabel><Select className="w-full" value={rig.bodyPreset} options={[{ value: "male", label: "男性素体" }, { value: "female", label: "女性素体" }, { value: "strong", label: "健壮素体" }, { value: "slim", label: "纤细素体" }, { value: "child", label: "少年素体" }, { value: "broad", label: "魁梧素体" }, { value: "teen", label: "青少年素体" }, { value: "chibi", label: "二头身素体" }]} onChange={(bodyPreset) => onUpdate({ characterRig: { ...rig, bodyPreset } })} />
+        <div className="mt-3 grid grid-cols-2 gap-3"><RigSlider label="身高" value={rig.height} min={0.5} max={1.8} onChange={(height) => onUpdate({ characterRig: { ...rig, height } })} /><RigSlider label="体宽" value={rig.width} min={0.55} max={1.8} onChange={(width) => onUpdate({ characterRig: { ...rig, width } })} /></div>
+        <FieldLabel>姿态预设</FieldLabel><div className="grid grid-cols-5 gap-1">{POSE_OPTIONS.map((pose) => <button key={pose.value} type="button" onClick={() => onUpdate({ characterRig: applyDirectorPosePreset(object, pose.value).characterRig })} className={`h-7 border text-[9px] transition ${rig.posePreset === pose.value ? "border-[#ff8066] bg-[#ff8066]/15 text-[#ffab98]" : "border-white/10 bg-white/[.025] text-white/55 hover:border-white/25 hover:text-white"}`}>{pose.label}</button>)}</div>
+        <div className="mt-4 flex items-center justify-between"><span className="text-[11px] text-white/55">关节微调</span><span className="text-[9px] text-white/30">点选关节点或输入角度</span></div>
+        {JOINT_GROUPS.map((group) => <details key={group.title} open={group.title === "躯干与头部" || group.joints.some((joint) => joint.value === selectedJoint)} className="mt-2 border border-white/10 bg-white/[.02]"><summary className="cursor-pointer select-none px-2 py-2 text-[10px] text-white/55">{group.title}</summary><div className="border-t border-white/10 px-2 pb-2">{group.joints.map((joint) => <div key={joint.value} className={selectedJoint === joint.value ? "-mx-1 bg-[#ff8066]/10 px-1 pb-2" : ""}><button type="button" className={`mt-2 text-[10px] ${selectedJoint === joint.value ? "text-[#ffab98]" : "text-white/45 hover:text-white"}`} onClick={() => onSelectJoint(selectedJoint === joint.value ? null : joint.value)}>{selectedJoint === joint.value ? "正在三维调节 · " : "选择关节 · "}{joint.label}</button><DegreeVectorField label="X / Y / Z" value={rig.joints[joint.value]} onChange={(rotation) => onUpdate({ characterRig: updateDirectorCharacterJoint(object, joint.value, rotation).characterRig })} /></div>)}</div></details>)}
+    </>;
+}
+
+function AssetInspector({ scene, object, onSceneChange, onUpdate }: { scene: DirectorScene; object: DirectorObject; onSceneChange: (scene: DirectorScene) => void; onUpdate: (patch: Partial<DirectorObject>) => void }) {
+    const panorama = object.role === "background" && object.backgroundProjection === "panorama";
+    return <><FieldLabel>场景投影</FieldLabel>{object.role === "background" ? <Select className="w-full" value={object.backgroundProjection || "backdrop"} options={[{ value: "backdrop", label: "平面布景板" }, { value: "panorama", label: "720° 全景球" }]} onChange={(backgroundProjection) => onUpdate({ backgroundProjection })} /> : null}<FieldLabel>显示方式</FieldLabel><Select className="w-full" value={object.fit || (object.role === "background" ? "cover" : "contain")} options={[{ value: "contain", label: "完整显示" }, { value: "cover", label: "铺满裁切" }]} onChange={(fit) => onUpdate({ fit })} /><FieldLabel>透明度</FieldLabel><InputNumber className="w-full" min={0} max={1} step={0.05} value={object.opacity ?? 1} onChange={(opacity) => opacity !== null && onUpdate({ opacity })} />{panorama ? <><FieldLabel>全景水平旋转</FieldLabel><Slider min={-180} max={180} value={Math.round(scene.stage.panoramaRotation * 180 / Math.PI)} onChange={(degrees) => onSceneChange({ ...scene, stage: { ...scene.stage, panoramaRotation: degrees * Math.PI / 180 } })} /><FieldLabel>全景球半径</FieldLabel><Slider min={10} max={100} value={scene.stage.panoramaRadius} onChange={(panoramaRadius) => onSceneChange({ ...scene, stage: { ...scene.stage, panoramaRadius } })} /></> : null}</>;
+}
+
+function RigSlider({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) { return <div><div className="mb-1 flex items-center justify-between text-[9px] text-white/40"><span>{label}</span><span>{value.toFixed(2)}</span></div><Slider min={min} max={max} step={0.01} value={value} tooltip={{ open: false }} onChange={onChange} /></div>; }
+
 function PanelHeading({ title, icon, action }: { title: string; icon: React.ReactNode; action?: React.ReactNode }) { return <div className="mb-3 flex h-7 items-center gap-2 text-xs font-medium text-white/70 [&_svg]:size-3.5">{icon}<span>{title}</span><span className="ml-auto">{action}</span></div>; }
+function StageToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) { return <label className="flex items-center gap-1.5"><Switch size="small" checked={checked} onChange={onChange} /><span>{label}</span></label>; }
 function FieldLabel({ children }: { children: React.ReactNode }) { return <div className="mb-1.5 mt-4 text-[11px] text-white/45">{children}</div>; }
-function ListRow({ active, icon, title, meta, onClick }: { active: boolean; icon: React.ReactNode; title: string; meta: string; onClick: () => void }) { return <button type="button" onClick={onClick} className={`flex h-9 w-full items-center gap-2 px-2 text-left text-xs transition ${active ? "bg-white/10 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"}`}><span className="[&_svg]:size-3.5">{icon}</span><span className="min-w-0 flex-1 truncate">{title}</span><span className="text-[9px] text-white/30">{meta}</span></button>; }
+function ListRow({ active, icon, title, meta, actions, onClick }: { active: boolean; icon: React.ReactNode; title: string; meta?: string; actions?: React.ReactNode; onClick: () => void }) { return <div className={`group flex h-9 w-full items-center transition ${active ? "bg-white/10 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"}`}><button type="button" onClick={onClick} className="flex h-full min-w-0 flex-1 items-center gap-2 px-2 text-left text-xs"><span className="shrink-0 [&_svg]:size-3.5">{icon}</span><span className="min-w-0 flex-1 truncate">{title}</span>{meta ? <span className="shrink-0 text-[9px] text-white/30">{meta}</span> : null}</button>{actions ? <div className="flex shrink-0 items-center pr-1">{actions}</div> : null}</div>; }
+function RowAction({ title, active, danger, disabled, onClick, children }: { title: string; active?: boolean; danger?: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode }) { return <Tooltip title={title}><button type="button" aria-label={title} disabled={disabled} onClick={onClick} className={`grid size-6 place-items-center transition disabled:cursor-not-allowed disabled:opacity-20 [&_svg]:size-3.5 ${active ? "text-[#ff8066]" : danger ? "text-white/35 hover:bg-red-500/15 hover:text-red-300" : "text-white/40 hover:bg-white/10 hover:text-white"}`}>{children}</button></Tooltip>; }
 function VectorField({ label, value, step = 0.1, min, onChange }: { label: string; value: DirectorVector3; step?: number; min?: number; onChange: (value: DirectorVector3) => void }) { return <div><FieldLabel>{label}</FieldLabel><div className="grid grid-cols-3 gap-1">{value.map((item, index) => <InputNumber key={index} controls={false} min={min} step={step} value={Number(item.toFixed(3))} prefix={["X", "Y", "Z"][index]} onChange={(next) => { if (next === null) return; const vector = [...value] as DirectorVector3; vector[index] = next; onChange(vector); }} />)}</div></div>; }
+function DegreeVectorField({ label, value, onChange }: { label: string; value: DirectorVector3; onChange: (value: DirectorVector3) => void }) { return <div><FieldLabel>{label}</FieldLabel><div className="grid grid-cols-3 gap-1">{value.map((item, index) => <InputNumber key={index} controls={false} min={-180} max={180} step={1} value={Math.round(item * 180 / Math.PI)} prefix={["X", "Y", "Z"][index]} onChange={(next) => { if (next === null) return; const vector = [...value] as DirectorVector3; vector[index] = next * Math.PI / 180; onChange(vector); }} />)}</div></div>; }
 function ToolButton({ title, active, onClick, children }: { title: string; active?: boolean; onClick: () => void; children: React.ReactNode }) { return <Tooltip title={title}><button type="button" onClick={onClick} className={`grid size-8 place-items-center transition [&_svg]:size-4 ${active ? "bg-[#e9583e] text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}>{children}</button></Tooltip>; }
+function TransformModeButton({ label, shortcut, active, onClick, children }: { label: string; shortcut: string; active?: boolean; onClick: () => void; children: React.ReactNode }) { return <Tooltip title={`${label}（${shortcut}）`}><button type="button" onClick={onClick} className={`flex h-8 items-center gap-1.5 px-2 text-[11px] transition [&_svg]:size-3.5 ${active ? "bg-[#e9583e] text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}>{children}<span>{label}</span><kbd className={`font-mono text-[9px] ${active ? "text-white/70" : "text-white/30"}`}>{shortcut}</kbd></button></Tooltip>; }
 
 function canvasBlob(canvas: HTMLCanvasElement) {
     return new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("浏览器未能导出当前画面")), "image/png", 0.94));
+}
+
+function waitForPaint() {
+    return new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 }

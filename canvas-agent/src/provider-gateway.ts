@@ -45,6 +45,8 @@ const videoRequestSchema = z
         images: z.array(z.string().trim()).default([]),
         videos: z.array(z.string().trim()).default([]),
         audios: z.array(z.string().trim()).default([]),
+        start_frame_url: z.string().trim().optional(),
+        end_frame_url: z.string().trim().optional(),
         bypass_face_check: z.boolean().optional(),
         grid_strength: z.number().min(0.01).max(0.5).optional(),
     })
@@ -52,7 +54,7 @@ const videoRequestSchema = z
     .superRefine((input, context) => {
         const model = findProviderModel(input.model);
         if (!model || model.provider !== "metajing" || model.capability !== "video" || !isExclusiveVideoModelId(input.model)) {
-            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "该视频模型已停用，橙月画布只支持已登记的四个 Seedance 2.0 独家通道" });
+            context.addIssue({ code: z.ZodIssueCode.custom, path: ["model"], message: "该视频模型已停用，橙月画布只支持已登记的 Seedance 独家通道" });
             return;
         }
         if (!resolveProviderVideoResolution(model, input.resolution)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["resolution"], message: `该模型只支持 ${(model.resolutions || []).join("、")}` });
@@ -65,6 +67,12 @@ const videoRequestSchema = z
             context.addIssue({ code: z.ZodIssueCode.custom, path: ["duration"], message: `该模型只支持 ${model.allowedDurations.join("、")} 秒` });
         }
         if (!model.aspectRatios?.includes(input.aspect_ratio)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["aspect_ratio"], message: `该模型只支持 ${model.aspectRatios?.join("、")}` });
+        if ((input.start_frame_url || input.end_frame_url) && !model.supportsFrames) context.addIssue({ code: z.ZodIssueCode.custom, path: ["start_frame_url"], message: "该模型不支持首尾帧" });
+        if (input.end_frame_url && !input.start_frame_url) context.addIssue({ code: z.ZodIssueCode.custom, path: ["end_frame_url"], message: "尾帧必须同时提供首帧" });
+        if (input.end_frame_url && !model.supportsEndFrame) context.addIssue({ code: z.ZodIssueCode.custom, path: ["end_frame_url"], message: "该模型不支持尾帧" });
+        if (model.framesConflictWithImages && input.start_frame_url && input.images.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ["images"], message: "该模型的首尾帧不能与普通参考图同时使用" });
+        if (input.start_frame_url && !validMediaSource(input.start_frame_url, "image")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["start_frame_url"], message: "首帧必须是 data:image 或 http(s) 地址" });
+        if (input.end_frame_url && !validMediaSource(input.end_frame_url, "image")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["end_frame_url"], message: "尾帧必须是 data:image 或 http(s) 地址" });
         const limits = model.references!;
         if (input.images.length > limits.images) context.addIssue({ code: z.ZodIssueCode.custom, path: ["images"], message: `该模型最多支持 ${limits.images} 张参考图` });
         if (input.videos.length > limits.videos) context.addIssue({ code: z.ZodIssueCode.custom, path: ["videos"], message: limits.videos ? `该模型最多支持 ${limits.videos} 段参考视频` : "该模型不支持参考视频" });
@@ -113,6 +121,7 @@ export function registerProviderGateway(app: Express) {
                     ...model,
                     examples: providerCostExamples(model, model.defaultResolution),
                     ...(model.capability === "video" ? { resolutionExamples: Object.fromEntries((model.resolutions || []).map((resolution) => [resolution, providerCostExamples(model, resolution)])) } : {}),
+                    ...(model.videoReferenceMultiplier ? { videoReferenceResolutionExamples: Object.fromEntries((model.resolutions || []).map((resolution) => [resolution, providerCostExamples(model, resolution, { hasVideoReferences: true })])) } : {}),
                 };
             }),
         });
@@ -209,11 +218,11 @@ function readSecret(envName: string, keychainService: string) {
     }
 }
 
-function providerCostExamples(model: (typeof PROVIDER_MODELS)[number], resolution?: ProviderVideoResolution) {
+function providerCostExamples(model: (typeof PROVIDER_MODELS)[number], resolution?: ProviderVideoResolution, options: { hasVideoReferences?: boolean } = {}) {
     if (model.capability === "image") return [{ quantity: 1, unit: "张", ...estimateProviderCost(model, 1) }];
     if (model.capability === "audio") return [{ quantity: 1000, unit: "字符", ...estimateProviderCost(model, 1000) }];
     const billing = providerBilling(model, resolution);
-    return (model.recommendedDurations || [5, 10, 15]).map((duration) => ({ quantity: duration, unit: billing?.unit === "generation" ? "秒/条" : "秒", ...estimateProviderCost(model, duration, resolution) }));
+    return (model.recommendedDurations || [5, 10, 15]).map((duration) => ({ quantity: duration, unit: billing?.unit === "generation" ? "秒/条" : "秒", ...estimateProviderCost(model, duration, resolution, options) }));
 }
 
 function validImageSize(value: string) {

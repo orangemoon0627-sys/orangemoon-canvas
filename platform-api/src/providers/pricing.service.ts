@@ -34,7 +34,7 @@ export class PricingService implements OnModuleInit {
         });
     }
 
-    quote(model: ProviderModel, requestedQuantity: number, requestedResolution?: string) {
+    quote(model: ProviderModel, requestedQuantity: number, requestedResolution?: string, options: { hasVideoReferences?: boolean } = {}) {
         const providerUsdToCny = this.exchangeRates();
         const usdToCny = platformProviderUsdToCny(model.provider);
         const markup = platformPriceMarkup();
@@ -42,7 +42,9 @@ export class PricingService implements OnModuleInit {
         const billing = providerBilling(model, requestedResolution);
         if (!billing) throw new Error(`${model.label} 不支持 ${requestedResolution || "当前"} 分辨率`);
         const quantity = providerQuantity(billing, requestedQuantity);
-        const upstreamUsd = billing.unit === "million_characters" ? (billing.usd * quantity) / 1_000_000 : billing.usd * quantity;
+        const priceMultiplier = options.hasVideoReferences ? model.videoReferenceMultiplier || 1 : 1;
+        const baseUpstreamUsd = billing.unit === "million_characters" ? (billing.usd * quantity) / 1_000_000 : billing.usd * quantity;
+        const upstreamUsd = baseUpstreamUsd * priceMultiplier;
         const upstreamCny = upstreamUsd * usdToCny;
         const retailMilliCredits = BigInt(Math.ceil((upstreamCny * markup * 1_000) - 1e-9));
         const retailCny = Number(retailMilliCredits) / 1_000;
@@ -53,6 +55,8 @@ export class PricingService implements OnModuleInit {
             billingUnit: billing.unit,
             resolution,
             quantity,
+            priceMultiplier,
+            videoReferenceSurchargeApplied: priceMultiplier > 1,
             upstreamUsd: round(upstreamUsd, 6),
             upstreamCny: round(upstreamCny, 4),
             usdToCny,
@@ -63,16 +67,16 @@ export class PricingService implements OnModuleInit {
         };
     }
 
-    examples(model: ProviderModel, resolution?: ProviderVideoResolution) {
+    examples(model: ProviderModel, resolution?: ProviderVideoResolution, options: { hasVideoReferences?: boolean } = {}) {
         if (model.capability === "image") return [{ requestedQuantity: 1, unit: "张", ...serializeQuote(this.quote(model, 1)) }];
         if (model.capability === "audio") return [{ requestedQuantity: 1_000, unit: "字符", ...serializeQuote(this.quote(model, 1_000)) }];
         const billing = providerBilling(model, resolution);
-        return (model.recommendedDurations || [5, 10, 15]).map((duration) => ({ requestedQuantity: duration, unit: billing?.unit === "generation" ? "秒/条" : "秒", ...serializeQuote(this.quote(model, duration, resolution)) }));
+        return (model.recommendedDurations || [5, 10, 15]).map((duration) => ({ requestedQuantity: duration, unit: billing?.unit === "generation" ? "秒/条" : "秒", ...serializeQuote(this.quote(model, duration, resolution, options)) }));
     }
 
-    resolutionExamples(model: ProviderModel) {
+    resolutionExamples(model: ProviderModel, options: { hasVideoReferences?: boolean } = {}) {
         if (model.capability !== "video") return undefined;
-        return Object.fromEntries((model.resolutions || []).map((resolution) => [resolution, this.examples(model, resolution)]));
+        return Object.fromEntries((model.resolutions || []).map((resolution) => [resolution, this.examples(model, resolution, options)]));
     }
 
     exchangeRates() {

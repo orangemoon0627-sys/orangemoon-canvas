@@ -7,6 +7,7 @@ import { saveAs } from "file-saver";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
+import { importGeneratedVideoMedia } from "@/services/api/platform";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { uploadImage } from "@/services/image-storage";
 import { uploadMediaFile } from "@/services/file-storage";
@@ -2181,6 +2182,7 @@ function InfiniteCanvasPage() {
                           vquality: generationConfig.vquality,
                           generateAudio: generationConfig.videoGenerateAudio,
                           watermark: generationConfig.videoWatermark,
+                          videoReferenceMode: generationConfig.videoReferenceMode,
                           ...buildAudioGenerationMetadata(generationConfig),
                       })
                     : null;
@@ -2382,6 +2384,7 @@ function InfiniteCanvasPage() {
                             vquality: generationConfig.vquality,
                             generateAudio: generationConfig.videoGenerateAudio,
                             watermark: generationConfig.videoWatermark,
+                            videoReferenceMode: generationConfig.videoReferenceMode,
                             references: generationReferenceUrls(generationContext),
                         }),
                     };
@@ -2424,6 +2427,7 @@ function InfiniteCanvasPage() {
                                               vquality: generationConfig.vquality,
                                               generateAudio: generationConfig.videoGenerateAudio,
                                               watermark: generationConfig.videoWatermark,
+                                              videoReferenceMode: generationConfig.videoReferenceMode,
                                               references: generationReferenceUrls(generationContext),
                                               generationTaskId: undefined,
                                               generationTaskProvider: undefined,
@@ -2641,6 +2645,7 @@ function InfiniteCanvasPage() {
                                           vquality: generationConfig.vquality,
                                           generateAudio: generationConfig.videoGenerateAudio,
                                           watermark: generationConfig.videoWatermark,
+                                          videoReferenceMode: generationConfig.videoReferenceMode,
                                           generationTaskId: undefined,
                                           generationTaskProvider: undefined,
                                           generationTaskModel: undefined,
@@ -2702,6 +2707,22 @@ function InfiniteCanvasPage() {
         },
         [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
+
+    const repairVideoNode = useCallback(async (node: CanvasNodeData) => {
+        const sourceUrl = node.metadata?.content || "";
+        if (node.type !== CanvasNodeType.Video || !/^https?:\/\//i.test(sourceUrl)) throw new Error("当前视频没有可修复的源地址");
+        setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...generationLoadingMetadata("video", item.metadata), generationStage: "正在迁移视频到橙月媒体库", generationProgressFloor: 96 } } : item));
+        try {
+            const { media } = await importGeneratedVideoMedia(sourceUrl);
+            setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, ...videoMetadata(media), errorDetails: undefined } } : item));
+            message.success("视频已修复并保存到媒体库");
+        } catch (error) {
+            const errorDetails = error instanceof Error ? error.message : "视频修复失败";
+            setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_SUCCESS, generationStage: undefined, generationProgressFloor: undefined, errorDetails } } : item));
+            message.error(errorDetails);
+            throw error;
+        }
+    }, [message]);
 
     useEffect(() => {
         if (!projectLoaded) return;
@@ -3063,6 +3084,7 @@ function InfiniteCanvasPage() {
                                 onToggleBatch={toggleBatchExpanded}
                                 onSetBatchPrimary={setBatchPrimary}
                                 onRetry={handleNodeRetry}
+                                onRepairVideo={repairVideoNode}
                                 onGenerateImage={generateImageFromTextNode}
                                 onOpenPanel={handleOpenNodePanel}
                                 onViewImage={handleNodeViewImage}

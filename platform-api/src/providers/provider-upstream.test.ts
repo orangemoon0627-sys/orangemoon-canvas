@@ -35,6 +35,14 @@ test("431 请求保留真实模型 ID", () => {
     assert.equal(request.payload.resolution, "480p");
 });
 
+test("Seedance 2.5 请求保留真实模型和首尾帧字段", () => {
+    const request = videoUpstreamRequest({ ...baseInput, model: "qy-seedance-2.5", duration: 29, resolution: "720p", start_frame_url: "https://example.com/start.png", end_frame_url: "https://example.com/end.png" }, "test-key");
+    assert.equal(request.payload.model, "qy-seedance-2.5");
+    assert.equal(request.payload.duration, 29);
+    assert.equal(request.payload.start_frame_url, "https://example.com/start.png");
+    assert.equal(request.payload.end_frame_url, "https://example.com/end.png");
+});
+
 test("其他旧视频模型不能进入上游", () => {
     for (const model of ["mg-seedance2.0 -720p fast", "Seedance 2.0-fast-720p"]) {
         assert.throws(

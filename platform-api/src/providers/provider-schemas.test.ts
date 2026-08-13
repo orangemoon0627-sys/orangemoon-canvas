@@ -13,10 +13,11 @@ const baseInput = {
     audios: [],
 };
 
-test("四个 Seedance 视频 API 都能通过请求校验", () => {
+test("五个 Seedance 视频 API 都能通过请求校验", () => {
     const requests = [
         { ...baseInput, model: "431-Seedream-2.0-fast", duration: 14 },
         { ...baseInput, model: "431-Seedream-2.0", duration: 10 },
+        { ...baseInput, model: "qy-seedance-2.5", duration: 29 },
         { ...baseInput, model: "qy-seedance-2.0-fast" },
         { ...baseInput, model: "qy-seedance-2.0", resolution: "1080p" },
     ];
@@ -28,7 +29,7 @@ test("旧视频模型会在请求入口被拒绝", () => {
     for (const model of ["mg-seedance2.0 -720p fast", "Seedance 2.0-fast-720p"]) {
         const result = videoRequestSchema.safeParse({ ...baseInput, model });
         assert.equal(result.success, false);
-        if (!result.success) assert.match(result.error.issues.map((issue) => issue.message).join("；"), /四个 Seedance 2\.0/);
+        if (!result.success) assert.match(result.error.issues.map((issue) => issue.message).join("；"), /Seedance 独家通道/);
     }
 });
 
@@ -40,6 +41,21 @@ test("分辨率和时长按模型能力分别校验", () => {
     assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "431-Seedream-2.0", duration: 15 }).success, false);
     assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "431-Seedream-2.0", duration: 14 }).success, true);
     assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "431-Seedream-2.0", resolution: "1080p" }).success, false);
+    assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.5", duration: 4 }).success, true);
+    assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.5", duration: 29 }).success, true);
+    assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.5", duration: 30 }).success, false);
+    assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.5", resolution: "1080p" }).success, false);
+});
+
+test("Seedance 2.5 支持 30 图、10 视频、10 音频及受约束首尾帧", () => {
+    const image = "data:image/png;base64,ref";
+    const video = "data:video/mp4;base64,ref";
+    const audio = "data:audio/mpeg;base64,ref";
+    assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.5", images: Array(30).fill(image), videos: Array(10).fill(video), audios: Array(10).fill(audio) }).success, true);
+    assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.5", images: Array(31).fill(image) }).success, false);
+    assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.5", end_frame_url: image }).success, false);
+    assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.5", start_frame_url: image, end_frame_url: image }).success, true);
+    assert.equal(videoRequestSchema.safeParse({ ...baseInput, model: "qy-seedance-2.5", images: [image], start_frame_url: image }).success, false);
 });
 
 test("Image 2 接受最多四张参考图并兼容旧 image 字段", () => {

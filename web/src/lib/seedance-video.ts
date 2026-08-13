@@ -2,6 +2,7 @@ import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/sto
 import { getOrangeMoonVideoModel, getOrangeMoonVideoProduct } from "@/lib/orange-moon-provider";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
+import type { VideoReferenceMode } from "@/types/media";
 
 export const SEEDANCE_REFERENCE_LIMITS = {
     images: 9,
@@ -145,9 +146,9 @@ export function seedanceReferenceLabel(kind: "image" | "video" | "audio", index:
     return `音频${index + 1}`;
 }
 
-export function buildSeedancePromptText(prompt: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
+export function buildSeedancePromptText(prompt: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[], referenceMode: VideoReferenceMode = "ref") {
     const labels = [
-        ...images.map((_, index) => seedanceReferenceLabel("image", index)),
+        ...images.map((_, index) => referenceMode === "firstlast" && index < 2 ? (index === 0 ? "首帧图片1" : "尾帧图片2") : referenceMode === "first" && index === 0 ? "首帧图片1" : seedanceReferenceLabel("image", index)),
         ...videos.map((_, index) => seedanceReferenceLabel("video", index)),
         ...audios.map((_, index) => seedanceReferenceLabel("audio", index)),
     ];
@@ -178,20 +179,30 @@ export function seedanceVideoReferenceError(videos: ReferenceVideo[]) {
     return "";
 }
 
-export function seedanceReferenceLimitsForModel(model: string) {
+export function seedanceReferenceLimitsForModel(model: string): NonNullable<ReturnType<typeof getOrangeMoonVideoModel>>["references"] {
     return getOrangeMoonVideoModel(modelOptionName(model))?.references || SEEDANCE_REFERENCE_LIMITS;
 }
 
-export function seedanceReferenceSetError(model: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
+export function seedanceReferenceSetError(model: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[], referenceMode: VideoReferenceMode = "ref") {
     const orangeMoonModel = getOrangeMoonVideoModel(modelOptionName(model));
     if (!orangeMoonModel) return seedanceVideoReferenceError(videos);
+    const frameError = seedanceFrameReferenceError(orangeMoonModel, referenceMode, images.length);
+    if (frameError) return frameError;
     const limits = orangeMoonModel.references;
     if (images.length > limits.images) return `当前模型最多支持 ${limits.images} 张参考图`;
     if (videos.length > limits.videos) return limits.videos ? `当前模型最多支持 ${limits.videos} 段参考视频` : "当前模型不支持参考视频";
     if (audios.length > limits.audios) return limits.audios ? `当前模型最多支持 ${limits.audios} 段参考音频` : "当前模型不支持参考音频";
     let totalDurationMs = 0;
     for (const video of videos) {
+        if (orangeMoonModel.name === "qy-seedance-2.5" && video.type && !isMp4OrMov(video.type, video.name)) return `${video.name} 需要使用 MP4 或 MOV 格式`;
         if (video.bytes && video.bytes > limits.videoMaxBytes) return `${video.name} 超过 ${Math.round(limits.videoMaxBytes / 1024 / 1024)}MB，请压缩后再上传`;
+        if (video.width && video.height && limits.videoMinShortEdge) {
+            const shortEdge = Math.min(video.width, video.height);
+            const longEdge = Math.max(video.width, video.height);
+            if (shortEdge < limits.videoMinShortEdge || shortEdge > (limits.videoMaxShortEdge || Number.POSITIVE_INFINITY) || longEdge > (limits.videoMaxLongEdge || Number.POSITIVE_INFINITY)) {
+                return `${video.name} 分辨率不符合当前模型要求：短边 ${limits.videoMinShortEdge}-${limits.videoMaxShortEdge}px，长边不超过 ${limits.videoMaxLongEdge}px`;
+            }
+        }
         if (!video.durationMs) continue;
         const minItemMs = (limits.videoMinItemSeconds || 0) * 1000;
         const maxItemMs = (limits.videoMaxItemSeconds || 15) * 1000;
@@ -199,12 +210,40 @@ export function seedanceReferenceSetError(model: string, images: ReferenceImage[
         totalDurationMs += video.durationMs;
     }
     if (totalDurationMs && totalDurationMs < (limits.videoMinTotalSeconds || 0) * 1000) return `参考视频总时长不能少于 ${limits.videoMinTotalSeconds} 秒`;
-    if (totalDurationMs > (limits.videoMaxTotalSeconds || 15) * 1000) return `参考视频总时长不能超过 ${limits.videoMaxTotalSeconds || 15} 秒`;
+    if (limits.videoMaxTotalSeconds && totalDurationMs > limits.videoMaxTotalSeconds * 1000) return `参考视频总时长不能超过 ${limits.videoMaxTotalSeconds} 秒`;
+    let audioDurationMs = 0;
     for (const audio of audios) {
+        if (orangeMoonModel.name === "qy-seedance-2.5" && audio.type && !isMp3OrWav(audio.type, audio.name)) return `${audio.name} 需要使用 MP3 或 WAV 格式`;
         if (audio.bytes && audio.bytes > limits.audioMaxBytes) return `${audio.name} 超过 ${Math.round(limits.audioMaxBytes / 1_000_000)}MB，请压缩后再上传`;
         if (audio.durationMs && audio.durationMs > (limits.audioMaxTotalSeconds || 15) * 1000) return `${audio.name} 时长不能超过 ${limits.audioMaxTotalSeconds || 15} 秒`;
+        audioDurationMs += audio.durationMs || 0;
     }
+    if (limits.audioMaxTotalSeconds && audioDurationMs > limits.audioMaxTotalSeconds * 1000) return `参考音频总时长不能超过 ${limits.audioMaxTotalSeconds} 秒`;
     return "";
+}
+
+export function seedanceFrameReferenceError(model: NonNullable<ReturnType<typeof getOrangeMoonVideoModel>>, mode: VideoReferenceMode, imageCount: number) {
+    if (mode === "ref") return "";
+    if (!model.supportsFrames) return "当前模型不支持首尾帧参考";
+    const required = mode === "firstlast" ? 2 : 1;
+    if (mode === "firstlast" && !model.supportsEndFrame) return "当前模型不支持尾帧参考";
+    if (imageCount < required) return mode === "firstlast" ? "首尾帧模式需要按顺序连接 2 张图片" : "首帧模式需要连接 1 张图片";
+    if (model.framesConflictWithImages && imageCount > required) return `${mode === "firstlast" ? "首尾帧" : "首帧"}模式不能再连接普通参考图`;
+    return "";
+}
+
+export function partitionSeedanceReferenceImages<T>(images: T[], mode: VideoReferenceMode) {
+    if (mode === "ref") return { images };
+    if (mode === "firstlast") return { images: images.slice(2), startFrame: images[0], endFrame: images[1] };
+    return { images: images.slice(1), startFrame: images[0] };
+}
+
+function isMp4OrMov(type: string, name: string) {
+    return type === "video/mp4" || type === "video/quicktime" || /\.(mp4|mov)$/i.test(name);
+}
+
+function isMp3OrWav(type: string, name: string) {
+    return ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"].includes(type) || /\.(mp3|wav)$/i.test(name);
 }
 
 export const seedanceVideoReferenceHint = "参考视频需为 mp4/mov，H.264/H.265，FPS 24-60；含真人人脸资产请使用火山授权 asset:// 资产。";

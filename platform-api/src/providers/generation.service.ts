@@ -3,6 +3,7 @@ import { AssetKind, GenerationStatus, Prisma, WorkspaceRole, type GenerationJob 
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
+import { CanvasMediaService } from "../canvas-media/canvas-media.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { LedgerService } from "../wallet/ledger.service";
 import { findProviderModel, isExclusiveVideoModelId, resolveProviderVideoResolution } from "./provider-catalog";
@@ -23,6 +24,7 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         private readonly pricing: PricingService,
         private readonly upstream: ProviderUpstreamService,
         private readonly workspaces: WorkspaceService,
+        private readonly canvasMedia: CanvasMediaService,
     ) {}
 
     onApplicationBootstrap() {
@@ -66,7 +68,7 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         if (!resolution) throw new BadRequestException(`${model.label} 不支持 ${input.resolution || "当前"} 分辨率`);
         const normalizedInput = { ...input, resolution };
         this.upstream.assertConfigured(model.provider);
-        const quote = this.pricing.quote(model, normalizedInput.duration, resolution);
+        const quote = this.pricing.quote(model, normalizedInput.duration, resolution, { hasVideoReferences: normalizedInput.videos.length > 0 });
         const reservation = await this.reserve(userId, workspace.id, idempotencyKey, "video", normalizedInput.model, quote, summarizeVideo(normalizedInput));
         if (!reservation.created) {
             if (reservation.job.status === GenerationStatus.SUBMITTED || reservation.job.status === GenerationStatus.SUCCEEDED) return { id: reservation.job.publicId, state: reservation.job.providerState || "submitted" };
@@ -75,14 +77,15 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         try {
             const result = asRecord(await this.upstream.createVideo(normalizedInput));
             const providerTaskId = providerVideoTaskId(result);
-            if (!providerTaskId) throw new ConflictException("Seedance 2.0 没有返回任务号");
+            if (!providerTaskId) throw new ConflictException("Seedance 没有返回任务号");
             const job = await this.prisma.generationJob.update({ where: { id: reservation.job.id }, data: { providerTaskId, status: GenerationStatus.SUBMITTED, providerState: String(result.state || result.status || "submitted").slice(0, 100) } });
             const outputUrl = videoResultUrl(result);
+            let persistedUrl = "";
             if (outputUrl) {
-                await this.registerVideoAsset(job, outputUrl);
+                persistedUrl = await this.registerVideoAsset(job, outputUrl);
                 await this.settle(job, quote.retailMilliCredits);
             }
-            return publicVideoTaskResult(result, job.publicId);
+            return publicVideoTaskResult(result, job.publicId, persistedUrl);
         } catch (error) {
             await this.release(reservation.job, error);
             throw publicVideoGenerationError(error, normalizedInput);
@@ -126,12 +129,12 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         const withPublicId = { ...result, id: job.publicId };
         const outputUrl = videoResultUrl(result);
         if (outputUrl) {
-            await this.registerVideoAsset(job, outputUrl);
+            const persistedUrl = await this.registerVideoAsset(job, outputUrl);
             await this.settle(job, job.reservedMilliCredits);
-            return { ...withPublicId, state: state || "succeeded", is_final: true, result_url: outputUrl };
+            return { ...withPublicId, state: state || "succeeded", is_final: true, result_url: persistedUrl };
         }
         if (videoFailed(result, state)) {
-            await this.release(job, new Error(readResultError(result) || "Seedance 2.0 视频生成失败"));
+            await this.release(job, new Error(readResultError(result) || "Seedance 视频生成失败"));
             return { ...withPublicId, state: state || "failed", is_final: true };
         }
         await this.prisma.generationJob.updateMany({ where: { id: job.id, status: GenerationStatus.SUBMITTED }, data: { providerState: state.slice(0, 100) } });
@@ -140,8 +143,19 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
 
     private async completedVideoResult(job: GenerationJob) {
         const asset = await this.prisma.asset.findFirst({ where: { generationJobId: job.id, kind: AssetKind.VIDEO }, orderBy: { ordinal: "asc" }, select: { data: true } });
-        const resultUrl = String(asRecord(asset?.data).url || "").trim();
+        const data = asRecord(asset?.data);
+        let resultUrl = String(data.url || "").trim();
+        if (/^https?:\/\//i.test(resultUrl) && !String(data.storageKey || "")) resultUrl = await this.registerVideoAsset(job, resultUrl);
         return { id: job.publicId, state: "success", status: "已完成", is_final: true, progress: "100%", ...(resultUrl ? { result_url: resultUrl } : {}) };
+    }
+
+    async importVideoMedia(userId: string, workspacePublicId: string | undefined, sourceUrl: string) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId, WorkspaceRole.EDITOR);
+        if (!/^https?:\/\//i.test(sourceUrl)) throw new BadRequestException("只能修复 MetaJing 返回的视频地址");
+        const media = await this.upstream.videoMedia(sourceUrl);
+        const storageKey = `video:repair_${randomBytes(12).toString("hex")}`;
+        const stored = await this.canvasMedia.saveBufferForWorkspace(userId, workspace.id, storageKey, media.contentType, media.body);
+        return storedVideoFile(storageKey, stored.mimeType, Number(stored.bytes));
     }
 
     async speech(userId: string, workspacePublicId: string | undefined, idempotencyKey: string, input: SpeechRequest) {
@@ -253,9 +267,18 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         })));
     }
 
-    private async registerVideoAsset(job: GenerationJob, url: string) {
-        if (!/^https?:\/\//i.test(url)) return;
-        await this.registerAssets(job, [{ kind: AssetKind.VIDEO, title: "Seedance 2.0 生成视频", data: { url, width: 0, height: 0, bytes: 0, mimeType: "video/mp4" } }], true);
+    private async registerVideoAsset(job: GenerationJob, sourceUrl: string) {
+        if (!/^https?:\/\//i.test(sourceUrl)) throw new BadRequestException("视频结果地址无效");
+        const existing = await this.prisma.asset.findFirst({ where: { generationJobId: job.id, kind: AssetKind.VIDEO, ordinal: 0 }, select: { data: true } });
+        const existingData = asRecord(existing?.data);
+        const existingStorageKey = String(existingData.storageKey || "").trim();
+        if (existingStorageKey && String(existingData.url || "").startsWith("/platform-api/canvas-media/")) return String(existingData.url);
+        const media = await this.upstream.videoMedia(sourceUrl);
+        const storageKey = existingStorageKey || `video:${job.publicId}`;
+        const stored = await this.canvasMedia.saveBufferForWorkspace(job.userId, job.workspaceId, storageKey, media.contentType, media.body);
+        const file = storedVideoFile(storageKey, stored.mimeType, Number(stored.bytes));
+        await this.registerAssets(job, [{ kind: AssetKind.VIDEO, title: "Seedance 生成视频", data: { ...file, width: 0, height: 0 } }], true);
+        return file.url;
     }
 
     private async registerAssets(job: GenerationJob, outputs: Array<{ kind: AssetKind; title: string; data: Prisma.InputJsonValue }>, required = false) {
@@ -330,9 +353,9 @@ export function providerVideoTaskId(result: Record<string, unknown>) {
         .find((value): value is string => typeof value === "string" && Boolean(value.trim()));
     return taskId?.trim() || "";
 }
-function publicVideoTaskResult(result: Record<string, unknown>, publicId: string) {
+function publicVideoTaskResult(result: Record<string, unknown>, publicId: string, persistedUrl = "") {
     const { id: _id, task_id: _taskId, taskId: _camelTaskId, ...publicResult } = result;
-    const resultUrl = videoResultUrl(result);
+    const resultUrl = persistedUrl || videoResultUrl(result);
     return { ...publicResult, id: publicId, ...(resultUrl ? { result_url: resultUrl, is_final: true } : {}) };
 }
 export function videoResultUrl(result: Record<string, unknown>) {
@@ -345,10 +368,13 @@ export function videoResultUrl(result: Record<string, unknown>) {
 function videoFailed(result: Record<string, unknown>, state: string) { return ["failed", "failure", "cancelled", "canceled", "expired"].includes(state) || (Boolean(result.is_final) && !videoResultUrl(result)); }
 function readResultError(result: Record<string, unknown>) { const error = result.error; return typeof error === "string" ? error : error && typeof error === "object" ? String((error as Record<string, unknown>).message || "") : ""; }
 function imageMimeType(format: string) { return format === "jpg" ? "image/jpeg" : `image/${format || "png"}`; }
+function storedVideoFile(storageKey: string, mimeType: string, bytes: number) {
+    return { url: `/platform-api/canvas-media/${encodeURIComponent(storageKey)}`, storageKey, bytes, mimeType: mimeType || "video/mp4" };
+}
 
 export function publicVideoGenerationError(error: unknown, input: Pick<VideoRequest, "model" | "videos" | "audios">) {
     const message = error instanceof Error ? error.message : String(error || "");
     if (!/no available channel for model/i.test(message)) return error;
     const selected = findProviderModel(input.model);
-    return new ServiceUnavailableException(`MetaJing 当前没有为「${selected?.label || input.model}」开放生成通道。本次未扣费，预授权已自动退回；请切换到列表中的另一个 Seedance 2.0 通道后重试。`);
+    return new ServiceUnavailableException(`MetaJing 当前没有为「${selected?.label || input.model}」开放生成通道。本次未扣费，预授权已自动退回；请切换到列表中的另一个 Seedance 通道后重试。`);
 }

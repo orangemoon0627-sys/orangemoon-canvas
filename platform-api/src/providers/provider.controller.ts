@@ -29,12 +29,14 @@ export class ProviderController {
             models: PUBLIC_PROVIDER_MODELS.map((model) => {
                 const { billingByResolution, ...publicModel } = model;
                 const resolutionExamples = this.pricing.resolutionExamples(model);
+                const videoReferenceResolutionExamples = model.videoReferenceMultiplier ? this.pricing.resolutionExamples(model, { hasVideoReferences: true }) : undefined;
                 return {
                     ...publicModel,
                     billing: showCost ? model.billing : { unit: model.billing.unit },
                     ...(showCost && billingByResolution ? { billingByResolution } : {}),
                     examples: this.pricing.examples(model, model.defaultResolution).map((example) => publicPriceExample(example, showCost)),
                     ...(resolutionExamples ? { resolutionExamples: Object.fromEntries(Object.entries(resolutionExamples).map(([resolution, examples]) => [resolution, examples.map((example) => publicPriceExample(example, showCost))])) } : {}),
+                    ...(videoReferenceResolutionExamples ? { videoReferenceResolutionExamples: Object.fromEntries(Object.entries(videoReferenceResolutionExamples).map(([resolution, examples]) => [resolution, examples.map((example) => publicPriceExample(example, showCost))])) } : {}),
                 };
             }),
         };
@@ -52,9 +54,10 @@ export class ProviderController {
             const quantity = Number(item.quantity);
             validateQuoteQuantity(model, quantity, index);
             const requestedResolution = typeof item.resolution === "string" ? item.resolution : undefined;
+            const hasVideoReferences = item.hasVideoReferences === true;
             const resolution = resolveProviderVideoResolution(model, requestedResolution);
             if (model.capability === "video" && !resolution) throw new BadRequestException(`第 ${index + 1} 项模型只支持 ${(model.resolutions || []).join("、")}`);
-            const quote = this.pricing.quote(model, quantity, resolution);
+            const quote = this.pricing.quote(model, quantity, resolution, { hasVideoReferences });
             return {
                 id: String(item.id || index),
                 model: model.id,
@@ -64,6 +67,8 @@ export class ProviderController {
                 requestedQuantity: quantity,
                 quantity: quote.quantity,
                 billingUnit: quote.billingUnit,
+                priceMultiplier: quote.priceMultiplier,
+                videoReferenceSurchargeApplied: quote.videoReferenceSurchargeApplied,
                 retailMilliCredits: quote.retailMilliCredits.toString(),
                 retailCredits: quote.retailCredits,
             };
@@ -98,6 +103,12 @@ export class ProviderController {
     @Get("metajing/v1/video/generations/:taskId")
     async pollVideo(@CurrentUser() user: AuthenticatedUser, @Param("taskId") taskId: string) {
         return this.generations.pollVideo(user.id, taskId);
+    }
+
+    @Post("video-media/import")
+    async importVideoMedia(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Body() body: unknown) {
+        const sourceUrl = body && typeof body === "object" ? String((body as Record<string, unknown>).url || "").trim() : "";
+        return { ok: true, media: await this.generations.importVideoMedia(user.id, workspaceId, sourceUrl) };
     }
 
     @Post("minimax/v1/audio/speech")

@@ -14,9 +14,10 @@ test("lists creative skill summaries without loading full instructions", () => {
 test("returns a pinned and licensed creative skill", () => {
     const skill = getCreativeSkill("seedance2-director");
     assert.match(skill.instructions, /2 至 5 个/);
-    assert.match(skill.instructions, /431-Seedream-2\.0-fast、431-Seedream-2\.0、qy-seedance-2\.0-fast、qy-seedance-2\.0/);
+    assert.match(skill.instructions, /431-Seedream-2\.0-fast、431-Seedream-2\.0、qy-seedance-2\.5、qy-seedance-2\.0-fast、qy-seedance-2\.0/);
     assert.doesNotMatch(skill.instructions, /清衍独家|两个独家/);
     assert.match(skill.instructions, /431 两款最多 4 图\/3 视频\/1 音频/);
+    assert.match(skill.instructions, /Seedance 2\.5 支持 4-29 秒任意整数/);
     assert.match(skill.instructions, /不要创建或调用 Seedance 2\.0-fast-720p/);
     assert.doesNotMatch(skill.instructions, /Seedance 2\.0 Mini/);
     assert.equal(skill.sources.every((source) => source.license === "MIT" && /^[a-f0-9]{40}$/.test(source.commit)), true);

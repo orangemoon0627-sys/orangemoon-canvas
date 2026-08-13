@@ -45,7 +45,7 @@ function publicModelMetadata(metadata: Record<string, unknown>) {
 }
 
 function publicModelName(value: string) {
-    return value.replace(/\bqy-(?=seedance-2\.0(?:-fast)?(?:[-:]|\b))/gi, "");
+    return value.replace(/\bqy-(?=seedance-2\.(?:0(?:-fast)?|5)(?:[-:]|\b))/gi, "");
 }
 
 export function nextCanvasX(state: CanvasSnapshot | null) {

@@ -63,6 +63,10 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                     configure(proxy) {
                         if (!remotePlatformApi) return;
+                        const targetOrigin = new URL(platformApiTarget).origin;
+                        proxy.on("proxyReq", (request) => {
+                            request.setHeader("Origin", targetOrigin);
+                        });
                         proxy.on("proxyRes", (response) => {
                             const cookies = response.headers["set-cookie"];
                             if (cookies) response.headers["set-cookie"] = cookies.map((cookie) => cookie.replace(/;\s*Secure/gi, ""));

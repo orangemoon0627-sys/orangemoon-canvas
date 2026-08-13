@@ -2,10 +2,10 @@ import crypto from "node:crypto";
 import type { ServerResponse } from "node:http";
 
 import { getCreativeSkill, listCreativeSkills, type CreativeSkillId } from "./creative-skills.js";
-import { buildSeedanceDirectorPrompt, mergeDirectorScene, normalizeDirectorScene } from "./director-scene.js";
+import { buildSeedanceDirectorPrompt, defaultDirectorAssetFit, directorAssetDisplaySize, mergeDirectorScene, normalizeDirectorScene, sortDirectorLayers } from "./director-scene.js";
 import { type ToolName } from "./schemas.js";
 import { compactCanvasState, editableNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
-import type { AgentAttachment, CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
+import type { AgentAttachment, CanvasNode, CanvasNodeType, CanvasSnapshot, DirectorVector3 } from "./types.js";
 
 type PendingRequest = { clientId: string; resolve: (value: unknown) => void; reject: (error: Error) => void };
 type TurnAttachment = { clientId: string; id: string; name: string; type: string; size: number; width: number; height: number; dataUrl: string };
@@ -236,11 +236,12 @@ export class CanvasSession {
         }
         if (tool === "canvas_create_director_scene") {
             const data = input as { scene: Record<string, unknown>; title?: string; x?: number; y?: number; width?: number; height?: number };
-            const scene = normalizeDirectorScene(data.scene);
+            const scene = resolveDirectorSceneAssets(normalizeDirectorScene(data.scene), this.canvasState);
             const nodeId = `director-${crypto.randomUUID()}`;
             input = {
                 ops: [
                     { type: "add_node", id: nodeId, nodeType: "director", title: data.title || scene.name || "导演台", position: { x: data.x ?? nextCanvasX(this.canvasState), y: data.y ?? 0 }, width: data.width, height: data.height, metadata: { status: "idle", director: scene } },
+                    ...directorAssetConnectionOps(this.canvasState, nodeId, scene),
                     { type: "select_nodes", ids: [nodeId] },
                 ],
             };
@@ -249,8 +250,8 @@ export class CanvasSession {
         if (tool === "canvas_update_director_scene") {
             const data = input as { nodeId: string; scene: Record<string, unknown>; replace?: boolean; title?: string };
             const node = requireDirectorNode(this.canvasState, data.nodeId);
-            const scene = mergeDirectorScene(node.metadata?.director, data.scene, data.replace);
-            input = { ops: [{ type: "update_node", id: node.id, ...(data.title === undefined ? {} : { patch: { title: data.title } }), metadata: { director: scene } }, { type: "select_nodes", ids: [node.id] }] };
+            const scene = resolveDirectorSceneAssets(mergeDirectorScene(node.metadata?.director, data.scene, data.replace), this.canvasState);
+            input = { ops: [{ type: "update_node", id: node.id, ...(data.title === undefined ? {} : { patch: { title: data.title } }), metadata: { director: scene } }, ...directorAssetConnectionOps(this.canvasState, node.id, scene), { type: "select_nodes", ids: [node.id] }] };
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_export_director_prompt") {
@@ -420,6 +421,7 @@ function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: 
             vquality: input.vquality,
             generateAudio: input.generateAudio,
             watermark: input.watermark,
+            videoReferenceMode: input.videoReferenceMode,
             audioVoice: input.audioVoice,
             audioFormat: input.audioFormat,
             audioSpeed: input.audioSpeed,
@@ -471,6 +473,64 @@ function requireDirectorNode(state: CanvasSnapshot | null, id: string) {
     const node = findNode(state, id);
     if (!node || node.type !== "director") throw new Error(`找不到导演台节点：${id}`);
     return node;
+}
+
+function resolveDirectorSceneAssets(scene: ReturnType<typeof normalizeDirectorScene>, state: CanvasSnapshot | null) {
+    const objects = scene.objects.map((object, index) => {
+        if (!object.sourceNodeId) return object;
+        const source = findNode(state, object.sourceNodeId);
+        if (!source) throw new Error(`导演台素材引用无效：找不到画布节点 ${object.sourceNodeId}`);
+        if (source.type !== "image" && source.type !== "video") throw new Error(`导演台素材引用无效：节点 ${object.sourceNodeId} 不是图片或视频产物`);
+        const metadata = source.metadata || {};
+        const assetKind = source.type;
+        const assetUrl = stringValue(metadata.content);
+        const storageKey = stringValue(metadata.storageKey);
+        if (!assetUrl && !storageKey) throw new Error(`导演台素材引用无效：节点 ${object.sourceNodeId} 没有可用媒体地址`);
+        const role = object.role || inferDirectorAssetRole(source, assetKind, index);
+        const width = positiveNumber(metadata.naturalWidth, positiveNumber(source.width, 1024));
+        const height = positiveNumber(metadata.naturalHeight, positiveNumber(source.height, 1024));
+        const position: DirectorVector3 = role === "background" ? [0, 0, object.position[2]] : object.position;
+        const rotation: DirectorVector3 = role === "background" ? [0, 0, 0] : object.rotation;
+        const scale: DirectorVector3 = role === "background" ? [1, 1, 1] : object.scale;
+        const primitive = role === "character" ? "character" as const : assetKind;
+        return {
+            ...object,
+            name: object.name === "未命名对象" ? source.title || `${assetKind === "image" ? "图片" : "视频"}素材` : object.name,
+            primitive,
+            assetKind,
+            sourceNodeId: source.id,
+            assetUrl: assetUrl || undefined,
+            storageKey: storageKey || undefined,
+            assetMimeType: stringValue(metadata.mimeType) || (assetKind === "image" ? "image/png" : "video/mp4"),
+            assetWidth: width,
+            assetHeight: height,
+            displaySize: directorAssetDisplaySize(role, scene.aspectRatio, width, height),
+            fit: object.fit || defaultDirectorAssetFit(role),
+            role,
+            position,
+            rotation,
+            scale,
+        };
+    });
+    return { ...scene, objects: sortDirectorLayers(objects) };
+}
+
+function directorAssetConnectionOps(state: CanvasSnapshot | null, directorId: string, scene: ReturnType<typeof normalizeDirectorScene>) {
+    const sourceIds = new Set(scene.objects.map((object) => object.sourceNodeId).filter((id): id is string => Boolean(id)));
+    const existing = state?.connections || [];
+    return [...sourceIds].filter((sourceId) => !existing.some((connection) => connection.fromNodeId === sourceId && connection.toNodeId === directorId)).map((sourceId) => ({ type: "connect_nodes" as const, fromNodeId: sourceId, toNodeId: directorId }));
+}
+
+function inferDirectorAssetRole(node: CanvasNode, kind: "image" | "video", index: number) {
+    const label = `${node.title || ""} ${String(node.metadata?.prompt || "")}`;
+    if (/(背景|场景|环境|庭院|室内|外景|山水|云海|landscape|background|environment|scene)/i.test(label)) return "background" as const;
+    if (/(人物|角色|主角|男主|女主|立绘|全身|神女|仙女|少女|少年|character|portrait|person)/i.test(label)) return "character" as const;
+    if (kind === "video") return "foreground" as const;
+    return index === 0 ? "background" as const : "character" as const;
+}
+
+function stringValue(value: unknown) {
+    return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
 function cleanRecord(value: Record<string, unknown>) {

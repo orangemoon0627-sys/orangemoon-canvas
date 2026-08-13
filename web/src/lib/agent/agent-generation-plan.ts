@@ -1,6 +1,7 @@
 import type { CanvasAgentOp, CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { canonicalOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
 import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
+import type { VideoReferenceMode } from "@/types/media";
 
 export type AgentGenerationDefaults = {
     imageModel: string;
@@ -12,6 +13,7 @@ export type AgentGenerationDefaults = {
     videoSize: string;
     videoSeconds: number;
     videoResolution: string;
+    videoReferenceMode?: VideoReferenceMode;
 };
 
 export type AgentGenerationPlanItem = {
@@ -26,6 +28,8 @@ export type AgentGenerationPlanItem = {
     seconds: number;
     resolution: string;
     promptLength: number;
+    hasVideoReferences: boolean;
+    videoReferenceMode: VideoReferenceMode;
 };
 
 export function buildAgentGenerationPlan(ops: CanvasAgentOp[] | undefined, snapshot: CanvasAgentSnapshot | null | undefined, defaults: AgentGenerationDefaults): AgentGenerationPlanItem[] {
@@ -67,6 +71,9 @@ export function buildAgentGenerationPlan(ops: CanvasAgentOp[] | undefined, snaps
             .map((source) => source.metadata?.content || source.metadata?.prompt || "")
             .filter(Boolean)
             .join("\n");
+        const hasVideoReferences = connections
+            .filter((connection) => connection.toNodeId === op.nodeId)
+            .some((connection) => nodes.get(connection.fromNodeId)?.type === "video");
         const prompt = incomingText || metadata.composerContent || metadata.prompt || op.prompt || "";
         return [{
             id: `${op.nodeId}:${index}`,
@@ -80,6 +87,8 @@ export function buildAgentGenerationPlan(ops: CanvasAgentOp[] | undefined, snaps
             seconds: boundedInteger(metadata.seconds, defaults.videoSeconds, 1, 60),
             resolution: normalizeVideoResolution(metadata.vquality || inferModelResolution(metadata.model) || defaults.videoResolution),
             promptLength: Math.max(1, prompt.trim().length),
+            hasVideoReferences,
+            videoReferenceMode: normalizeVideoReferenceMode(metadata.videoReferenceMode || defaults.videoReferenceMode),
         }];
     });
 }
@@ -112,7 +121,7 @@ export function synchronizeAgentGenerationOps(ops: CanvasAgentOp[] | undefined, 
             model: item.model,
             ...(item.mode === "audio" ? {} : { size: item.size }),
             ...(item.mode === "image" ? { quality: item.quality, count: item.count } : {}),
-            ...(item.mode === "video" ? { seconds: String(item.seconds), vquality: item.resolution.replace("p", "") } : {}),
+            ...(item.mode === "video" ? { seconds: String(item.seconds), vquality: item.resolution.replace("p", ""), videoReferenceMode: item.videoReferenceMode } : {}),
         });
     }
     return next;
@@ -123,7 +132,7 @@ export function generationQuoteItems(items: AgentGenerationPlanItem[]) {
         id: item.id,
         model: item.model,
         quantity: item.mode === "image" ? item.count : item.mode === "video" ? item.seconds : item.promptLength,
-        ...(item.mode === "video" ? { resolution: item.resolution } : {}),
+        ...(item.mode === "video" ? { resolution: item.resolution, hasVideoReferences: item.hasVideoReferences } : {}),
     }));
 }
 
@@ -173,4 +182,8 @@ function inferModelResolution(value: unknown) {
 function normalizeVideoResolution(value: unknown) {
     const resolution = String(value || "720").toLowerCase().replace(/p$/, "");
     return resolution === "480" || resolution === "1080" ? `${resolution}p` : "720p";
+}
+
+function normalizeVideoReferenceMode(value: unknown): VideoReferenceMode {
+    return value === "first" || value === "firstlast" ? value : "ref";
 }

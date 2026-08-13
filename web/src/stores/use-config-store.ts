@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import { canonicalOrangeMoonVideoModel, getOrangeMoonModelLabel, getOrangeMoonModelPublicName, ORANGE_MOON_CHANNEL_ID, ORANGE_MOON_GATEWAY_URL, ORANGE_MOON_MODELS, ORANGE_MOON_PROVIDER } from "@/lib/orange-moon-provider";
+import type { VideoReferenceMode } from "@/types/media";
 
 export type ApiCallFormat = "openai" | "gemini";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -45,6 +46,7 @@ export type AiConfig = {
     vquality: string;
     videoGenerateAudio: string;
     videoWatermark: string;
+    videoReferenceMode: VideoReferenceMode;
     systemPrompt: string;
     models: string[];
     quality: string;
@@ -101,6 +103,7 @@ export const defaultConfig: AiConfig = {
     vquality: "720",
     videoGenerateAudio: "true",
     videoWatermark: "false",
+    videoReferenceMode: "ref",
     systemPrompt: "",
     models: [...ORANGE_MOON_MODELS.map((model) => `${ORANGE_MOON_CHANNEL_ID}::${model.name}`), "default::gpt-5.5"],
     quality: "auto",
@@ -239,6 +242,7 @@ export const useConfigStore = create<ConfigStore>()(
                         vquality: config.vquality || "720",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
+                        videoReferenceMode: normalizeVideoReferenceMode(config.videoReferenceMode),
                         canvasImageCount: config.canvasImageCount || "3",
                     },
                 };
@@ -296,6 +300,10 @@ export function decodeChannelModel(value: string) {
 
 export function modelOptionName(value: string) {
     return decodeChannelModel(value)?.model || value;
+}
+
+export function normalizeVideoReferenceMode(value: unknown): VideoReferenceMode {
+    return value === "first" || value === "firstlast" ? value : "ref";
 }
 
 export function modelOptionPublicName(value: string) {

@@ -49,10 +49,13 @@ function AgentPriceTable({ pricing, loading }: { pricing?: AgentPricing; loading
 }
 
 function ExampleValues({ model, mode }: { model: ProviderCatalogModel; mode: "retail" | "cost" | "margin" }) {
-    const groups = model.resolutionExamples
-        ? Object.entries(model.resolutionExamples).flatMap(([resolution, examples]) => (examples || []).map((example) => ({ resolution, example })))
-        : model.examples.map((example) => ({ resolution: "", example }));
-    return <Space orientation="vertical" size={2}>{groups.map(({ resolution, example }) => <span key={`${resolution}-${example.requestedQuantity}-${example.unit}`} className="text-xs tabular-nums">{exampleLabel(model, example, resolution)} · {exampleValue(example, mode)}</span>)}</Space>;
+    const groups = [
+        ...(model.resolutionExamples
+            ? Object.entries(model.resolutionExamples).flatMap(([resolution, examples]) => (examples || []).map((example) => ({ resolution, example, variant: "基础" })))
+            : model.examples.map((example) => ({ resolution: "", example, variant: "" }))),
+        ...Object.entries(model.videoReferenceResolutionExamples || {}).flatMap(([resolution, examples]) => (examples || []).map((example) => ({ resolution, example, variant: "带参考视频" }))),
+    ];
+    return <Space orientation="vertical" size={2}>{groups.map(({ resolution, example, variant }) => <span key={`${variant}-${resolution}-${example.requestedQuantity}-${example.unit}`} className="text-xs tabular-nums">{variant ? `${variant} · ` : ""}{exampleLabel(model, example, resolution)} · {exampleValue(example, mode)}</span>)}</Space>;
 }
 
 function exampleLabel(model: ProviderCatalogModel, example: ProviderPriceExample, resolution = "") {

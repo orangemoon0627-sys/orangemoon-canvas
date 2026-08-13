@@ -1,3 +1,5 @@
+import type { VideoReferenceMode } from "@/types/media";
+
 export type Position = {
     x: number;
     y: number;
@@ -44,6 +46,7 @@ export type CanvasNodeMetadata = {
     vquality?: string;
     generateAudio?: string;
     watermark?: string;
+    videoReferenceMode?: VideoReferenceMode;
     audioVoice?: string;
     audioFormat?: string;
     audioSpeed?: string;

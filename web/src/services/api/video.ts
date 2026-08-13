@@ -4,10 +4,10 @@ import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, partitionSeedanceReferenceImages, seedanceFrameReferenceError, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { canonicalOrangeMoonVideoModel, getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
 import { prepareReferenceImagesForJson } from "@/lib/reference-image-upload";
-import { buildApiUrl, isOrangeMoonManagedConfig, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, isOrangeMoonManagedConfig, modelOptionName, normalizeVideoReferenceMode, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import { orangeMoonGet, orangeMoonPost } from "./orange-moon-gateway";
 import type { ReferenceImage } from "@/types/image";
@@ -150,11 +150,9 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
-        try {
-            return await uploadMediaFile(result.url, "video");
-        } catch {
-            return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
-        }
+        const storageKey = platformCanvasMediaStorageKey(result.url);
+        if (storageKey) return { url: result.url, storageKey, bytes: 0, mimeType: result.mimeType || "video/mp4" };
+        return uploadMediaFile(result.url, "video");
     }
     throw new Error("视频接口没有返回可播放的视频");
 }
@@ -199,27 +197,47 @@ async function createMetaJingVideoTask(config: AiConfig, selectedModel: string, 
     const modelName = canonicalOrangeMoonVideoModel(modelOptionName(selectedModel));
     const model = getOrangeMoonVideoModel(modelName, config.vquality);
     if (!model) throw new Error("橙月官方渠道没有登记这个视频模型");
-    assertOrangeMoonReferences(model, references, videoReferences, audioReferences);
+    const referenceMode = model.supportsFrames ? normalizeVideoReferenceMode(config.videoReferenceMode) : "ref";
+    assertOrangeMoonReferences(model, references, videoReferences, audioReferences, referenceMode);
+    const declaredLocalMediaBytes = [...videoReferences, ...audioReferences]
+        .filter((reference) => !isPublicMediaUrl(reference.url))
+        .reduce((total, reference) => total + (reference.bytes || 0), 0);
+    if (declaredLocalMediaBytes > 20_000_000) throw new Error("本地参考视频和音频合计不能超过 20MB；更大的参考素材请使用公网 URL");
     const ratio = normalizeSeedanceRatio(config.size);
     const aspectRatio = model.aspectRatios.includes(ratio) ? ratio : model.aspectRatios[0];
     const duration = normalizeSeedanceDurationForModel(modelName, config.videoSeconds);
-    const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
-    const [images, videos, audios] = await Promise.all([
-        prepareReferenceImagesForJson(references, model.references.imageMaxBytes),
+    const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences, referenceMode);
+    const [videos, audios] = await Promise.all([
         Promise.all(videoReferences.map((video) => resolveOrangeMoonVideoUrl(video))),
         Promise.all(audioReferences.map((audio) => resolveOrangeMoonAudioUrl(audio))),
     ]);
+    const localMediaBytes = [...videos, ...audios].reduce((total, value) => total + dataUrlBinaryBytes(value), 0);
+    const localBinaryBudget = 20_000_000;
+    if (localMediaBytes >= localBinaryBudget) throw new Error("本地参考视频和音频合计不能超过 20MB；更大的参考素材请使用公网 URL");
+    const preparedImages = await prepareReferenceImagesForJson(references, model.references.imageMaxBytes, 3072, localBinaryBudget - localMediaBytes);
+    const frameImages = partitionSeedanceReferenceImages(preparedImages, referenceMode);
     try {
         const created = await orangeMoonPost<MetaJingTask>(
             "/metajing/v1/video/generations",
-            { model: model.name, prompt: text, duration, resolution: model.resolution, aspect_ratio: aspectRatio, images, videos, audios },
+            {
+                model: model.name,
+                prompt: text,
+                duration,
+                resolution: model.resolution,
+                aspect_ratio: aspectRatio,
+                images: frameImages.images,
+                videos,
+                audios,
+                ...(frameImages.startFrame ? { start_frame_url: frameImages.startFrame } : {}),
+                ...(frameImages.endFrame ? { end_frame_url: frameImages.endFrame } : {}),
+            },
             { signal: options?.signal },
         );
         const taskId = created.id || created.task_id;
         if (!taskId) throw new Error("橙月平台没有返回视频任务 ID");
         return { id: taskId, provider: "metajing", model: selectedModel };
     } catch (error) {
-        throw new Error(readAxiosError(error, "Seedance 2.0 任务创建失败"));
+        throw new Error(readAxiosError(error, "Seedance 任务创建失败"));
     }
 }
 
@@ -230,30 +248,54 @@ async function pollMetaJingVideoTask(task: VideoGenerationTask, options?: Reques
         if (resultUrl) return { status: "completed", result: await videoResultFromUrl(resultUrl, options) };
         const normalizedState = String(state.state || "").toLowerCase();
         if (["failed", "failure", "cancelled", "canceled", "expired"].includes(normalizedState) || state.is_final) {
-            return { status: "failed", error: readApiErrorMessage(typeof state.error === "string" ? state.error : state.error?.message) || state.status || "Seedance 2.0 视频生成失败" };
+            return { status: "failed", error: readApiErrorMessage(typeof state.error === "string" ? state.error : state.error?.message) || state.status || "Seedance 视频生成失败" };
         }
         return { status: "pending" };
     } catch (error) {
-        throw new Error(readAxiosError(error, "Seedance 2.0 任务查询失败"));
+        throw new Error(readAxiosError(error, "Seedance 任务查询失败"));
     }
 }
 
 function metaJingVideoResultUrl(state: MetaJingTask) {
     const data = Array.isArray(state.data) ? state.data : state.data ? [state.data] : [];
     return [state.result_url, state.video_url, state.mp4_url, ...data.flatMap((item) => [item.result_url, item.video_url, item.mp4_url, item.url])]
-        .find((value): value is string => typeof value === "string" && /^https?:\/\//i.test(value.trim()))
+        .find((value): value is string => typeof value === "string" && isPlayableVideoResultUrl(value.trim()))
         ?.trim() || "";
 }
 
-function assertOrangeMoonReferences(model: NonNullable<ReturnType<typeof getOrangeMoonVideoModel>>, references: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
+function isPlayableVideoResultUrl(value: string) {
+    return /^https?:\/\//i.test(value) || value.startsWith("/platform-api/canvas-media/");
+}
+
+function platformCanvasMediaStorageKey(value: string) {
+    const match = /^(?:https?:\/\/[^/]+)?\/platform-api\/canvas-media\/([^?#]+)/i.exec(value.trim());
+    if (!match?.[1]) return "";
+    try {
+        return decodeURIComponent(match[1]);
+    } catch {
+        return "";
+    }
+}
+
+function assertOrangeMoonReferences(model: NonNullable<ReturnType<typeof getOrangeMoonVideoModel>>, references: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[], referenceMode: ReturnType<typeof normalizeVideoReferenceMode>) {
     const limits = model.references;
+    const frameError = seedanceFrameReferenceError(model, referenceMode, references.length);
+    if (frameError) throw new Error(frameError);
     if (references.length > limits.images) throw new Error(`当前模型最多支持 ${limits.images} 张参考图`);
     if (videos.length > limits.videos) throw new Error(limits.videos ? `当前模型最多支持 ${limits.videos} 段参考视频` : "当前模型不支持参考视频");
     if (audios.length > limits.audios) throw new Error(limits.audios ? `当前模型最多支持 ${limits.audios} 段参考音频` : "当前模型不支持参考音频");
     if (audios.length && !references.length && !videos.length) throw new Error("参考音频不能单独使用，请同时添加参考图或参考视频");
     let videoDurationMs = 0;
     for (const video of videos) {
+        if (model.name === "qy-seedance-2.5" && video.type && !isMp4OrMovReference(video.type, video.name)) throw new Error(`参考视频 ${video.name} 需要使用 MP4 或 MOV 格式`);
         if (video.bytes && video.bytes > limits.videoMaxBytes) throw new Error(`参考视频 ${video.name} 超过 ${Math.round(limits.videoMaxBytes / 1024 / 1024)}MB`);
+        if (video.width && video.height && limits.videoMinShortEdge) {
+            const shortEdge = Math.min(video.width, video.height);
+            const longEdge = Math.max(video.width, video.height);
+            if (shortEdge < limits.videoMinShortEdge || shortEdge > (limits.videoMaxShortEdge || Number.POSITIVE_INFINITY) || longEdge > (limits.videoMaxLongEdge || Number.POSITIVE_INFINITY)) {
+                throw new Error(`参考视频 ${video.name} 分辨率需满足短边 ${limits.videoMinShortEdge}-${limits.videoMaxShortEdge}px、长边不超过 ${limits.videoMaxLongEdge}px`);
+            }
+        }
         if (video.durationMs) {
             const minItemMs = (limits.videoMinItemSeconds || 0) * 1000;
             const maxItemMs = (limits.videoMaxItemSeconds || 15) * 1000;
@@ -262,11 +304,23 @@ function assertOrangeMoonReferences(model: NonNullable<ReturnType<typeof getOran
         }
     }
     if (videoDurationMs && videoDurationMs < (limits.videoMinTotalSeconds || 0) * 1000) throw new Error(`参考视频总时长不能少于 ${limits.videoMinTotalSeconds} 秒`);
-    if (videoDurationMs > (limits.videoMaxTotalSeconds || 15) * 1000) throw new Error(`参考视频总时长不能超过 ${limits.videoMaxTotalSeconds || 15} 秒`);
+    if (limits.videoMaxTotalSeconds && videoDurationMs > limits.videoMaxTotalSeconds * 1000) throw new Error(`参考视频总时长不能超过 ${limits.videoMaxTotalSeconds} 秒`);
+    let audioDurationMs = 0;
     for (const audio of audios) {
+        if (model.name === "qy-seedance-2.5" && audio.type && !isMp3OrWavReference(audio.type, audio.name)) throw new Error(`参考音频 ${audio.name} 需要使用 MP3 或 WAV 格式`);
         if (audio.bytes && audio.bytes > limits.audioMaxBytes) throw new Error(`参考音频 ${audio.name} 超过 ${Math.round(limits.audioMaxBytes / 1_000_000)}MB`);
         if (audio.durationMs && audio.durationMs > (limits.audioMaxTotalSeconds || 15) * 1000) throw new Error(`参考音频 ${audio.name} 时长不能超过 ${limits.audioMaxTotalSeconds || 15} 秒`);
+        audioDurationMs += audio.durationMs || 0;
     }
+    if (limits.audioMaxTotalSeconds && audioDurationMs > limits.audioMaxTotalSeconds * 1000) throw new Error(`参考音频总时长不能超过 ${limits.audioMaxTotalSeconds} 秒`);
+}
+
+function isMp4OrMovReference(type: string, name: string) {
+    return type === "video/mp4" || type === "video/quicktime" || /\.(mp4|mov)$/i.test(name);
+}
+
+function isMp3OrWavReference(type: string, name: string) {
+    return ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"].includes(type) || /\.(mp3|wav)$/i.test(name);
 }
 
 async function resolveOrangeMoonVideoUrl(video: ReferenceVideo) {
@@ -396,6 +450,7 @@ async function resolveSeedanceAudioUrl(audio: ReferenceAudio) {
 }
 
 async function videoResultFromUrl(url: string, options?: RequestOptions): Promise<VideoGenerationResult> {
+    if (platformCanvasMediaStorageKey(url)) return { url, mimeType: "video/mp4" };
     try {
         const response = await axios.get<Blob>(url, { responseType: "blob", signal: options?.signal });
         await assertVideoBlob(response.data);
@@ -498,6 +553,13 @@ async function assertVideoBlob(blob: Blob) {
 
 function isPublicMediaUrl(value: string) {
     return /^https?:\/\//i.test(value || "");
+}
+
+function dataUrlBinaryBytes(value: string) {
+    if (!value.startsWith("data:")) return 0;
+    const body = value.split(",", 2)[1] || "";
+    const padding = body.endsWith("==") ? 2 : body.endsWith("=") ? 1 : 0;
+    return Math.max(0, Math.floor((body.length * 3) / 4) - padding);
 }
 
 function delay(ms: number, signal?: AbortSignal) {

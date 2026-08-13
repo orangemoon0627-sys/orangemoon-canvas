@@ -18,11 +18,12 @@ test("hides custom models that duplicate an official product or legacy alias", (
 
     const options = selectableModelsByCapability({ ...defaultConfig, channels: [official, custom] }, "video");
 
-    assert.equal(options.length, 5);
+    assert.equal(options.length, 6);
     assert.ok(options.includes(encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "431-Seedream-2.0-fast")));
     assert.ok(options.includes(encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "431-Seedream-2.0")));
     assert.ok(options.includes(encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.0-fast")));
     assert.ok(options.includes(encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.0")));
+    assert.ok(options.includes(encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.5")));
     assert.ok(options.includes(encodeChannelModel("custom", "veo-custom-preview")));
     assert.ok(!options.includes(encodeChannelModel("custom", "seedance-2.0-720p-economy")));
     assert.ok(!options.includes(encodeChannelModel("custom", "mg-seedance2.0 -720p pro")));
@@ -82,6 +83,7 @@ test("exposes public aliases for official models without changing custom channel
     const config = { ...defaultConfig, channels: [official, custom] };
 
     assert.equal(modelOptionPublicName("qy-seedance-2.0-fast"), "seedance-2.0-fast");
+    assert.equal(modelOptionPublicName("qy-seedance-2.5"), "seedance-2.5");
     assert.equal(modelOptionPublicName("431-Seedream-2.0-fast"), "431-Seedream-2.0-fast");
     assert.equal(modelOptionPublicValue(config, encodeChannelModel(ORANGE_MOON_CHANNEL_ID, "qy-seedance-2.0-fast")), "seedance-2.0-fast");
     assert.equal(modelOptionPublicValue(config, encodeChannelModel("custom", "custom-video")), encodeChannelModel("custom", "custom-video"));

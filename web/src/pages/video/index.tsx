@@ -62,7 +62,7 @@ type GenerationLog = {
     error?: string;
 };
 
-type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vquality" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark">;
+type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vquality" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode">;
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
@@ -148,6 +148,7 @@ export default function VideoPage() {
                 }),
             ),
             message.warning,
+            referenceLimits.audioMaxTotalSeconds,
         );
         setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
         setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, referenceLimits.videos));
@@ -237,7 +238,7 @@ export default function VideoPage() {
             openConfigDialog(true);
             return null;
         }
-        const videoReferenceError = seedanceReferenceSetError(model, references, videoReferences, audioReferences);
+        const videoReferenceError = seedanceReferenceSetError(model, references, videoReferences, audioReferences, resolvedVideoConfig.videoReferenceMode);
         if (videoReferenceError) {
             message.error(videoReferenceError);
             return null;
@@ -781,23 +782,23 @@ function isSupportedAudioFile(file: File) {
     return file.type === "audio/mpeg" || file.type === "audio/mp3" || file.type === "audio/wav" || file.type === "audio/x-wav" || /\.(mp3|wav)$/i.test(file.name);
 }
 
-function filterAudioReferencesByDuration(existing: ReferenceAudio[], next: ReferenceAudio[], warn: (content: string) => void) {
+function filterAudioReferencesByDuration(existing: ReferenceAudio[], next: ReferenceAudio[], warn: (content: string) => void, maxTotalSeconds = 15) {
     let total = existing.reduce((sum, item) => sum + (item.durationMs || 0), 0);
     const accepted: ReferenceAudio[] = [];
     let skipped = false;
     for (const item of next) {
-        if (item.durationMs && (item.durationMs < 2000 || item.durationMs > 15000)) {
+        if (item.durationMs && (item.durationMs < 2000 || item.durationMs > maxTotalSeconds * 1000)) {
             skipped = true;
             continue;
         }
-        if (item.durationMs && total + item.durationMs > 15000) {
+        if (item.durationMs && total + item.durationMs > maxTotalSeconds * 1000) {
             skipped = true;
             continue;
         }
         total += item.durationMs || 0;
         accepted.push(item);
     }
-    if (skipped) warn("已忽略不符合时长要求的参考音频：单个 2-15 秒，总时长不超过 15 秒");
+    if (skipped) warn(`已忽略不符合时长要求的参考音频：单个至少 2 秒，总时长不超过 ${maxTotalSeconds} 秒`);
     return accepted;
 }
 
@@ -828,6 +829,7 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
         videoSeconds: log.config?.videoSeconds || log.seconds || "",
         videoGenerateAudio: log.config?.videoGenerateAudio || "true",
         videoWatermark: log.config?.videoWatermark || "false",
+        videoReferenceMode: log.config?.videoReferenceMode || "ref",
     };
 }
 
@@ -840,6 +842,7 @@ function buildLog({ prompt, model, config, references, videoReferences, audioRef
         videoSeconds: config.videoSeconds,
         videoGenerateAudio: config.videoGenerateAudio,
         videoWatermark: config.videoWatermark,
+        videoReferenceMode: config.videoReferenceMode,
     };
     return {
         id: nanoid(),
@@ -877,6 +880,7 @@ function buildVideoConfig(config: AiConfig, model: string): AiConfig {
         vquality: seedance ? orangeMoonModel?.resolution || normalizeSeedanceResolution(config.vquality, modelName) : normalizeResolution(config.vquality),
         videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
         videoWatermark: String(boolConfig(config.videoWatermark, false)),
+        videoReferenceMode: orangeMoonModel?.supportsFrames ? config.videoReferenceMode : "ref",
     };
 }
 

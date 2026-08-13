@@ -1,6 +1,6 @@
 ---
 title: 橙月画布平台底座
-description: MetaJing、Seedance 2.0、MiniMax Audio、成本计费与多人平台架构
+description: MetaJing、Seedance、MiniMax Audio、成本计费与多人平台架构
 ---
 
 # 橙月画布平台底座
@@ -16,10 +16,10 @@ description: MetaJing、Seedance 2.0、MiniMax Audio、成本计费与多人平�
 - 官方模型调用采用“预估并冻结 -> 调用供应商 -> 成功结算或失败释放”，每个任务和账本变更都有幂等键与价格快照。视频在最终轮询状态返回时结算。
 - Web 提供登录/注册 Gate、账户中心和管理后台，可查看余额、模型价格、账户资产、流水、充值单、使用记录并完成充值审核、用户管理和积分调账。
 - 账户资产和画布元数据写入 PostgreSQL 并按用户隔离；浏览器旧项目/资产在首次登录后自动归户，媒体文件本体写入独立持久化卷而不进入数据库大字段。
-- 内置“橙月官方”渠道，包含 `gpt-image-2`、两款 Seedance 2.0 独家 API（5 个可选分辨率规格）、`speech-2.8-hd` 和 `speech-2.8-turbo`。
+- 内置“橙月官方”渠道，包含 `gpt-image-2`、五个独立 Seedance 视频 API、`speech-2.8-hd` 和 `speech-2.8-turbo`。
 - 浏览器只携带 HttpOnly 平台会话，不保存 MetaJing 或 MiniMax 的供应商密钥。平台 API 从环境变量读取密钥；macOS 本地宿主进程也可从 Keychain 读取。
 - Image 2 图生图统一调用 `/v1/images/generations` 的 `image` 字段，不再错误调用 `/v1/images/edits`。
-- Seedance 2.0 使用 MetaJing 的 `/v1/video/generations` 协议，并按每个模型分别限制画幅、时长和参考素材数量。
+- Seedance 使用 MetaJing 的 `/v1/video/generations` 协议，并按每个模型分别限制画幅、时长和参考素材数量。
 - 视频任务使用退避轮询，客户端最长等待约 40 分钟；最终结果以 `is_final`、`state` 和 `result_url` 为准。
 - MiniMax 返回的十六进制音频由网关转换为浏览器可播放的音频二进制。
 
@@ -73,22 +73,23 @@ Image 2：
 - 图生图最多四张参考图，使用 `images` 数组并兼容旧单值 `image`；浏览器提交前会按请求体预算优化大图。
 - 支持 15 档标准尺寸，也支持满足约束的自定义尺寸：最长边不超过 3840px、最短边不低于 256px、边长为 16 的倍数、总像素不超过 8,294,400、长短边比不超过 3:1。
 
-Seedance 2.0：
+Seedance：
 
 | 模型 | 清晰度 | 时长 | 画幅 | 图/视频/音频上限 |
 | --- | ---: | --- | --- | ---: |
 | Seedance 2.0 Fast（431） | 480P/720P | 5/10/14s | 16:9、1:1、9:16 | 4/3/1 |
 | Seedance 2.0（431） | 480P/720P | 5/10/14s | 16:9、1:1、9:16 | 4/3/1 |
+| Seedance 2.5 | 480P/720P | 4-29s 任意整数 | 16:9、1:1、9:16 | 30/10/10 |
 | Seedance 2.0 Fast | 480P/720P | 5/10/15s | 16:9、9:16、21:9、4:3、1:1、3:4 | 9/3/3 |
 | Seedance 2.0 | 480P/720P/1080P | 5/10/15s | 16:9、9:16、21:9、4:3、1:1、3:4 | 9/3/3 |
 
-视频白名单严格等于上表四个真实 ID：`431-Seedream-2.0-fast`、`431-Seedream-2.0`、`qy-seedance-2.0-fast`、`qy-seedance-2.0`。`Seedance 2.0-fast-720p`、旧 MG、CC、Mini、Pro 和其他未列出的型号不进入目录、报价或供应商调用。
+视频白名单严格等于上表五个真实 ID：`431-Seedream-2.0-fast`、`431-Seedream-2.0`、`qy-seedance-2.5`、`qy-seedance-2.0-fast`、`qy-seedance-2.0`。Seedance 2.5 默认生成声音，支持全能参考、首帧和首尾帧；首尾帧不能与普通参考图同时使用，带任意参考视频时整单成本和售价乘 `1.6`。`Seedance 2.0-fast-720p`、旧 MG、CC、Mini、Pro 和其他未列出的型号不进入目录、报价或供应商调用。
 
 ## 成本与建议售价
 
 换算按供应商拆分：本账号的 MetaJing 美元额度按实际采购口径 `$1 额度 = ¥1`，MiniMax Global 美元账单按 `1 USD = ¥7.3`，平台 `1 积分 = ¥1`。零售价按供应商人民币成本 `1.65x` 并向上取整到 `0.001` 积分，使实际毛利率稳定在 `39.39%` 左右。价格进入数据库版本和每单快照，不能散落在前端代码中。
 
-当前账户中心直接读取后端目录展示完整价格。常用规格为：Image 2 `0.099 积分/张`、MiniMax Turbo `0.723 积分/千字符`、MiniMax HD `1.205 积分/千字符`；431 Fast 720P 为 `0.312 积分/秒`，431 标准 720P 为 `0.355 积分/秒`，另外两款 Fast/标准 720P 分别为 `0.330` / `0.440 积分/秒`。
+当前账户中心直接读取后端目录展示完整价格。常用规格为：Image 2 `0.099 积分/张`、MiniMax Turbo `0.723 积分/千字符`、MiniMax HD `1.205 积分/千字符`；Seedance 2.5 基础 480P/720P 分别为 `0.314` / `0.396 积分/秒`，带参考视频分别为 `0.502` / `0.634 积分/秒`；431 Fast/标准 720P 为 `0.312` / `0.355 积分/秒`，Seedance 2.0 Fast/标准 720P 为 `0.330` / `0.440 积分/秒`。
 
 价格来源：[MetaJing API 文档](https://metajing.cn/zh-CN/api-docs)、MetaJing 公共模型/价格接口、本账号实际额度采购口径、[MiniMax Pay as You Go](https://platform.minimax.io/docs/guides/pricing-paygo)。供应商模型价格和额度采购比例都可能变化，生产服务应人工复核并生成新价格版本，历史订单继续绑定提交时的价格版本。
 
