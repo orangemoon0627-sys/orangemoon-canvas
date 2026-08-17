@@ -15,10 +15,19 @@ export function orangeMoonGatewayRequest() {
 export async function orangeMoonPost<T>(path: string, body: unknown, options?: { signal?: AbortSignal; responseType?: "json" | "blob" }) {
     const gateway = orangeMoonGatewayRequest();
     const trackWallet = isBillableProviderPath(path);
+    const idempotencyKey = crypto.randomUUID();
     if (trackWallet) beginWalletTracking();
     try {
-        const response = await axios.post<T>(gateway.url(path), body, { headers: { ...gateway.headers, "Idempotency-Key": crypto.randomUUID() }, withCredentials: true, signal: options?.signal, responseType: options?.responseType || "json" });
-        return response.data;
+        for (let attempt = 0; ; attempt += 1) {
+            try {
+                const response = await axios.post<T>(gateway.url(path), body, { headers: { ...gateway.headers, "Idempotency-Key": idempotencyKey }, withCredentials: true, signal: options?.signal, responseType: options?.responseType || "json" });
+                return response.data;
+            } catch (error) {
+                const retryAfter = axios.isAxiosError(error) && error.response?.status === 429 ? Number(error.response.headers["retry-after"] || 0) : 0;
+                if (!trackWallet || !retryAfter || attempt >= 23) throw error;
+                await delayWithSignal(Math.min(10_000, Math.max(1_000, retryAfter * 1_000)), options?.signal);
+            }
+        }
     } finally {
         if (trackWallet) endWalletTracking();
     }
@@ -63,4 +72,22 @@ async function refreshWallet() {
     } catch {
         // Generation errors are reported by the original request; wallet refresh retries on the next activity.
     }
+}
+
+function delayWithSignal(ms: number, signal?: AbortSignal) {
+    return new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+        }
+        const onAbort = () => {
+            window.clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+        };
+        const timer = window.setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+        }, ms);
+        signal?.addEventListener("abort", onAbort, { once: true });
+    });
 }

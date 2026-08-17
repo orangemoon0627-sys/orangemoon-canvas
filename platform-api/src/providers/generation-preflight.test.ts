@@ -85,6 +85,30 @@ test("官方生图结果改写为登录账户可访问的同源资产地址", ()
     assert.deepEqual(result.data, [{ url: "/platform-api/providers/assets/AST123/content", revised_prompt: "ok" }]);
 });
 
+test("已持久化的生成图优先从工作区媒体读取", async () => {
+    let upstreamReads = 0;
+    const prisma = {
+        asset: { findFirst: async () => ({ data: { dataUrl: "https://metajing.cn/generated.png", storageKey: "image:AST123" } }) },
+    } as unknown as PrismaService;
+    const upstream = {
+        imageMediaStream: async () => {
+            upstreamReads += 1;
+            throw new Error("不应回源供应商");
+        },
+    } as unknown as ProviderUpstreamService;
+    const canvasMedia = {
+        open: async () => ({ path: __filename, media: { mimeType: "image/png", bytes: 123n } }),
+    };
+    const service = new GenerationService(prisma, {} as LedgerService, {} as PricingService, upstream, workspaces, canvasMedia as never);
+
+    const media = await service.imageAssetStream("user-1", "team-a", "AST123");
+    media.body.destroy();
+
+    assert.equal(media.contentType, "image/png");
+    assert.equal(media.contentLength, 123);
+    assert.equal(upstreamReads, 0);
+});
+
 test("视频通道缺失时提示已退款和可用替代模型", () => {
     const error = publicVideoGenerationError(
         new BadGatewayException('{"error":{"message":"No available channel for model qy-seedance-2.0 under group default"}}'),

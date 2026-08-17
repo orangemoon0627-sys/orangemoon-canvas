@@ -86,11 +86,12 @@ export class ProviderController {
 
     @Get("assets/:assetId/content")
     async imageAsset(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Param("assetId") assetId: string, @Res() reply: FastifyReply) {
-        const media = await this.generations.imageAsset(user.id, workspaceId, assetId);
+        const media = await this.generations.imageAssetStream(user.id, workspaceId, assetId);
+        reply.header("Content-Type", media.contentType);
+        if (media.contentLength) reply.header("Content-Length", String(media.contentLength));
         reply
-            .header("Content-Type", media.contentType)
-            .header("Content-Length", String(media.contentLength))
-            .header("Cache-Control", "private, max-age=3600")
+            .header("Cache-Control", "private, max-age=31536000, immutable")
+            .header("X-Accel-Buffering", "no")
             .header("X-Content-Type-Options", "nosniff")
             .send(media.body);
     }

@@ -105,7 +105,8 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
 
 export function videoPollDelayMs(task: VideoGenerationTask, attempt: number) {
     if (task.provider !== "metajing") return task.provider === "seedance" ? 5000 : 2500;
-    return Math.min(30_000, 5000 * 2 ** Math.floor(Math.max(0, attempt) / 12));
+    const normalizedAttempt = Math.max(0, attempt);
+    return Math.min(12_000, 3000 + Math.floor(normalizedAttempt / 5) * 1000);
 }
 
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {

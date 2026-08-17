@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, ServiceUnavailableException } from "@nestjs/common";
 import { AssetKind, GenerationStatus, Prisma, WorkspaceRole, type GenerationJob } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { z } from "zod";
 
 import { CanvasMediaService } from "../canvas-media/canvas-media.service";
@@ -28,7 +29,7 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
     ) {}
 
     onApplicationBootstrap() {
-        const intervalMs = Math.max(10_000, Number(process.env.VIDEO_RECONCILE_INTERVAL_MS) || 20_000);
+        const intervalMs = Math.max(5_000, Number(process.env.VIDEO_RECONCILE_INTERVAL_MS) || 10_000);
         this.reconcileTimer = setInterval(() => void this.reconcileSubmittedVideos(), intervalMs);
         this.reconcileTimer.unref();
         setTimeout(() => void this.reconcileSubmittedVideos(), 2_000).unref();
@@ -53,6 +54,11 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
             const result = await this.upstream.image(input);
             await this.settle(reservation.job, quote.retailMilliCredits);
             const assets = await this.registerImageAssets(reservation.job, result, input.output_format);
+            setTimeout(() => {
+                void this.persistGeneratedImages(reservation.job, result, assets).catch((error) => {
+                    this.logger.warn(`图片任务 ${reservation.job.publicId} 后台持久化失败：${error instanceof Error ? error.message : "未知错误"}`);
+                });
+            }, 5_000).unref();
             return { result: rewriteGeneratedImageUrls(result, assets), jobId: reservation.job.publicId, chargedCredits: quote.retailCredits };
         } catch (error) {
             await this.release(reservation.job, error);
@@ -110,12 +116,18 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
                 orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
                 take: 20,
             });
-            for (const job of jobs) {
-                try {
-                    await this.refreshSubmittedVideo(job);
-                } catch (error) {
-                    this.logger.warn(`视频任务 ${job.publicId} 后台查询失败：${error instanceof Error ? error.message : "未知错误"}`);
-                }
+            const concurrency = Math.max(1, Math.min(8, Number(process.env.VIDEO_RECONCILE_CONCURRENCY) || 4));
+            for (let offset = 0; offset < jobs.length; offset += concurrency) {
+                const batch = jobs.slice(offset, offset + concurrency);
+                await Promise.all(
+                    batch.map(async (job) => {
+                        try {
+                            await this.refreshSubmittedVideo(job);
+                        } catch (error) {
+                            this.logger.warn(`视频任务 ${job.publicId} 后台查询失败：${error instanceof Error ? error.message : "未知错误"}`);
+                        }
+                    }),
+                );
             }
         } finally {
             this.reconciling = false;
@@ -187,6 +199,25 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
         const sourceUrl = String(asRecord(asset.data).dataUrl || "").trim();
         if (!/^https?:\/\//i.test(sourceUrl)) throw new NotFoundException("生成图片没有可读取的源地址");
         return this.upstream.imageMedia(sourceUrl);
+    }
+
+    async imageAssetStream(userId: string, workspacePublicId: string | undefined, publicId: string) {
+        const workspace = await this.workspaces.resolve(userId, workspacePublicId);
+        const asset = await this.prisma.asset.findFirst({ where: { publicId, workspaceId: workspace.id, kind: AssetKind.IMAGE }, select: { data: true } });
+        if (!asset) throw new NotFoundException("生成图片不存在");
+        const data = asRecord(asset.data);
+        const storageKey = String(data.storageKey || "").trim();
+        if (storageKey) {
+            try {
+                const local = await this.canvasMedia.open(userId, workspacePublicId, storageKey);
+                return { body: createReadStream(local.path), contentType: local.media.mimeType, contentLength: Number(local.media.bytes) };
+            } catch (error) {
+                if (!(error instanceof NotFoundException)) throw error;
+            }
+        }
+        const sourceUrl = String(data.dataUrl || data.sourceUrl || "").trim();
+        if (!/^https?:\/\//i.test(sourceUrl)) throw new NotFoundException("生成图片没有可读取的源地址");
+        return this.upstream.imageMediaStream(sourceUrl);
     }
 
     private async reserve(userId: string, workspaceId: string, idempotencyKey: string, capability: string, model: string, quote: ReturnType<PricingService["quote"]>, requestSummary: Prisma.InputJsonValue) {
@@ -265,6 +296,44 @@ export class GenerationService implements OnApplicationBootstrap, OnModuleDestro
             title: `Image 2 生成图 ${index + 1}`,
             data: { dataUrl: url, width: 0, height: 0, bytes: 0, mimeType: imageMimeType(outputFormat) },
         })));
+    }
+
+    private async persistGeneratedImages(job: GenerationJob, result: unknown, assets: Array<{ id: string; publicId: string; ordinal: number }>) {
+        const urls = generatedImageUrls(result);
+        const concurrency = 2;
+        for (let offset = 0; offset < assets.length; offset += concurrency) {
+            const batch = assets.slice(offset, offset + concurrency);
+            const outcomes = await Promise.allSettled(
+                batch.map(async (asset) => {
+                    const sourceUrl = urls[asset.ordinal];
+                    if (!sourceUrl) return;
+                    const media = await this.upstream.imageMedia(sourceUrl);
+                    const storageKey = `image:${asset.publicId}`;
+                    const stored = await this.canvasMedia.saveBufferForWorkspace(job.userId, job.workspaceId, storageKey, media.contentType, media.body);
+                    const current = await this.prisma.asset.findUnique({ where: { id: asset.id }, select: { data: true } });
+                    const data = asRecord(current?.data);
+                    await this.prisma.asset.update({
+                        where: { id: asset.id },
+                        data: {
+                            data: {
+                                ...data,
+                                dataUrl: String(data.dataUrl || sourceUrl),
+                                sourceUrl,
+                                storageKey,
+                                bytes: Number(stored.bytes),
+                                mimeType: stored.mimeType,
+                            },
+                        },
+                    });
+                }),
+            );
+            outcomes.forEach((outcome, index) => {
+                if (outcome.status === "rejected") {
+                    const asset = batch[index];
+                    this.logger.warn(`图片资产 ${asset?.publicId || "unknown"} 持久化失败：${outcome.reason instanceof Error ? outcome.reason.message : "未知错误"}`);
+                }
+            });
+        }
     }
 
     private async registerVideoAsset(job: GenerationJob, sourceUrl: string) {
@@ -368,6 +437,11 @@ export function videoResultUrl(result: Record<string, unknown>) {
 function videoFailed(result: Record<string, unknown>, state: string) { return ["failed", "failure", "cancelled", "canceled", "expired"].includes(state) || (Boolean(result.is_final) && !videoResultUrl(result)); }
 function readResultError(result: Record<string, unknown>) { const error = result.error; return typeof error === "string" ? error : error && typeof error === "object" ? String((error as Record<string, unknown>).message || "") : ""; }
 function imageMimeType(format: string) { return format === "jpg" ? "image/jpeg" : `image/${format || "png"}`; }
+function generatedImageUrls(result: unknown) {
+    const record = asRecord(result);
+    const items = Array.isArray(record.data) ? record.data : Array.isArray(record.images) ? record.images : [];
+    return items.map((item) => String(asRecord(item).url || "").trim()).filter((url) => /^https?:\/\//i.test(url));
+}
 function storedVideoFile(storageKey: string, mimeType: string, bytes: number) {
     return { url: `/platform-api/canvas-media/${encodeURIComponent(storageKey)}`, storageKey, bytes, mimeType: mimeType || "video/mp4" };
 }

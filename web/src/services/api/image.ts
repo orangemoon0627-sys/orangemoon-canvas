@@ -75,6 +75,7 @@ type ImageApiResponse = {
     code?: number;
     msg?: string;
 };
+
 type GeminiPart = {
     text?: string;
     inlineData?: { mimeType?: string; data?: string };
@@ -788,7 +789,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         if (mask) throw new Error("橙月官方 Image 2 暂不支持蒙版编辑");
         if (references.length > 4) throw new Error("橙月官方 Image 2 最多支持 4 张参考图");
         try {
-            const preparedReferences = await prepareReferenceImagesForJson(references, 8_000_000);
+            const preparedReferences = await prepareReferenceImagesForJson(references, 3_000_000, 2048, 10_000_000);
             return await requestOrangeMoonImages(requestConfig, requestPrompt, Math.min(n, 4), requestSize, quality, background, preparedReferences, options);
         } catch (error) {
             throw new Error(readAxiosError(error, "Image 2 图生图请求失败"));

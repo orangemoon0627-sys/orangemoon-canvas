@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { Readable, Transform } from "node:stream";
 
 import { BadGatewayException, BadRequestException, HttpException, HttpStatus, Injectable, ServiceUnavailableException } from "@nestjs/common";
 
@@ -40,13 +41,16 @@ export class ProviderUpstreamService {
     }
 
     async imageMedia(sourceUrl: string) {
-        const config = this.metaJingConfig();
-        const source = new URL(sourceUrl);
-        const base = new URL(config.baseUrl);
-        if (!["http:", "https:"].includes(source.protocol) || (source.hostname !== base.hostname && !source.hostname.endsWith(`.${base.hostname}`))) {
-            throw new BadGatewayException("生成图片地址不属于已配置的 MetaJing 域名");
-        }
+        const media = await this.imageMediaStream(sourceUrl);
+        const chunks: Buffer[] = [];
+        for await (const chunk of media.body) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        const body = Buffer.concat(chunks);
+        return { body, contentType: media.contentType, contentLength: body.byteLength };
+    }
 
+    async imageMediaStream(sourceUrl: string) {
+        const config = this.metaJingConfig();
+        const source = validateImageSource(sourceUrl, config.baseUrl);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 120_000);
         try {
@@ -56,15 +60,35 @@ export class ProviderUpstreamService {
             if (!contentType.startsWith("image/")) throw new BadGatewayException("生成图片源返回了非图片内容");
             const declaredLength = Number(response.headers.get("content-length") || 0);
             if (declaredLength > MAX_IMAGE_MEDIA_BYTES) throw new BadGatewayException("生成图片超过 32MB 限制");
-            const body = Buffer.from(await response.arrayBuffer());
-            if (body.byteLength > MAX_IMAGE_MEDIA_BYTES) throw new BadGatewayException("生成图片超过 32MB 限制");
-            return { body, contentType, contentLength: body.byteLength };
+            if (!response.body) throw new BadGatewayException("生成图片源没有返回可读取的内容");
+
+            const sourceStream = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]);
+            let bytes = 0;
+            const limitedStream = new Transform({
+                transform(chunk: Buffer, _encoding, callback) {
+                    bytes += chunk.length;
+                    if (bytes > MAX_IMAGE_MEDIA_BYTES) {
+                        callback(new BadGatewayException("生成图片超过 32MB 限制"));
+                        return;
+                    }
+                    callback(null, chunk);
+                },
+            });
+            const clearStreamTimeout = () => clearTimeout(timeout);
+            sourceStream.once("close", clearStreamTimeout);
+            sourceStream.once("error", clearStreamTimeout);
+            limitedStream.once("close", clearStreamTimeout);
+            limitedStream.once("error", clearStreamTimeout);
+            return {
+                body: sourceStream.pipe(limitedStream),
+                contentType,
+                contentLength: declaredLength > 0 ? declaredLength : undefined,
+            };
         } catch (error) {
+            clearTimeout(timeout);
             if (error instanceof HttpException) throw error;
             if (error instanceof Error && error.name === "AbortError") throw new HttpException("生成图片读取超时", HttpStatus.GATEWAY_TIMEOUT);
             throw new BadGatewayException(error instanceof Error ? error.message : "生成图片读取失败");
-        } finally {
-            clearTimeout(timeout);
         }
     }
 
@@ -184,6 +208,15 @@ export class ProviderUpstreamService {
 
 function providerHeaders(apiKey: string, extra?: Record<string, string>) {
     return { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Accept: "application/json", ...extra };
+}
+
+function validateImageSource(sourceUrl: string, baseUrl: string) {
+    const source = new URL(sourceUrl);
+    const base = new URL(baseUrl);
+    if (!["http:", "https:"].includes(source.protocol) || (source.hostname !== base.hostname && !source.hostname.endsWith(`.${base.hostname}`))) {
+        throw new BadGatewayException("生成图片地址不属于已配置的 MetaJing 域名");
+    }
+    return source;
 }
 
 export function videoUpstreamRequest(input: VideoRequest, apiKey: string) {

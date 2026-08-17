@@ -137,3 +137,35 @@ test("视频资产暂时无法登记时保留任务待重试，不提前扣费",
 
     assert.equal(transactionAttempts, 0);
 });
+
+test("后台视频对账按配置限制并发查询", async (context) => {
+    const previousConcurrency = process.env.VIDEO_RECONCILE_CONCURRENCY;
+    process.env.VIDEO_RECONCILE_CONCURRENCY = "2";
+    context.after(() => {
+        if (previousConcurrency === undefined) delete process.env.VIDEO_RECONCILE_CONCURRENCY;
+        else process.env.VIDEO_RECONCILE_CONCURRENCY = previousConcurrency;
+    });
+    const jobs = Array.from({ length: 5 }, (_, index) => ({
+        ...submittedVideoJob(),
+        id: `job-${index}`,
+        publicId: `GEN-VIDEO-${index}`,
+        providerTaskId: `provider-task-${index}`,
+    }));
+    let active = 0;
+    let peak = 0;
+    const prisma = { generationJob: { findMany: async () => jobs } } as unknown as PrismaService;
+    const upstream = {
+        pollVideo: async () => {
+            active += 1;
+            peak = Math.max(peak, active);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            active -= 1;
+            throw new Error("temporary upstream timeout");
+        },
+    } as unknown as ProviderUpstreamService;
+    const service = new GenerationService(prisma, {} as LedgerService, {} as PricingService, upstream, workspaces, {} as never);
+
+    await service.reconcileSubmittedVideos();
+
+    assert.equal(peak, 2);
+});
