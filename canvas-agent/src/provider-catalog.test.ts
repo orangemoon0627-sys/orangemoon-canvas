@@ -43,6 +43,7 @@ test("the five Seedance APIs expose their official reference limits", () => {
     assert.deepEqual(qyFast?.allowedDurations, [5, 10, 15]);
     assert.deepEqual(qy?.resolutions, ["480p", "720p", "1080p"]);
     assert.deepEqual(qy25?.references && { images: qy25.references.images, videos: qy25.references.videos, audios: qy25.references.audios }, { images: 30, videos: 10, audios: 10 });
+    assert.equal(qy25?.references?.audioMaxItemSeconds, 15);
     assert.equal(qy25?.videoReferenceMultiplier, 1.6);
     assert.deepEqual(estimateProviderCost(qy25!, 15, "720p", { hasVideoReferences: true }), { upstreamUsd: 5.76, upstreamCny: 5.76, suggestedCredits: 9.504, resolution: "720p" });
 });

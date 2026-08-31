@@ -38,6 +38,7 @@ export type OrangeMoonVideoModel = {
         videoMaxItemSeconds?: number;
         videoMinTotalSeconds?: number;
         videoMaxTotalSeconds?: number;
+        audioMaxItemSeconds?: number;
         audioMaxTotalSeconds?: number;
         videoMinShortEdge?: number;
         videoMaxShortEdge?: number;
@@ -70,7 +71,7 @@ export type OrangeMoonVideoProduct = {
 };
 
 const qyReferences = { images: 9, videos: 3, audios: 3, imageMaxBytes: 15_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 2, videoMaxItemSeconds: 15, videoMinTotalSeconds: 2, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
-const qy25References = { images: 30, videos: 10, audios: 10, imageMaxBytes: 30_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, audioMaxTotalSeconds: 150, videoMinShortEdge: 720, videoMaxShortEdge: 2160, videoMaxLongEdge: 2160 };
+const qy25References = { images: 30, videos: 10, audios: 10, imageMaxBytes: 30_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, audioMaxItemSeconds: 15, audioMaxTotalSeconds: 150, videoMinShortEdge: 720, videoMaxShortEdge: 2160, videoMaxLongEdge: 2160 };
 const references431 = { images: 4, videos: 3, audios: 1, imageMaxBytes: 30_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
 const qyRatios = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
 const ratios431 = ["16:9", "1:1", "9:16"];

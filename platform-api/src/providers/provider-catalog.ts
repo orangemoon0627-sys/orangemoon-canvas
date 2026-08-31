@@ -46,6 +46,7 @@ export type ProviderModel = {
         videoMaxItemSeconds?: number;
         videoMinTotalSeconds?: number;
         videoMaxTotalSeconds?: number;
+        audioMaxItemSeconds?: number;
         audioMaxTotalSeconds?: number;
         videoMinShortEdge?: number;
         videoMaxShortEdge?: number;
@@ -63,7 +64,7 @@ export const EXCLUSIVE_VIDEO_MODEL_IDS = [
 
 const EXCLUSIVE_VIDEO_MODEL_ID_SET = new Set<string>(EXCLUSIVE_VIDEO_MODEL_IDS);
 const QY_REFERENCES = { images: 9, videos: 3, audios: 3, imageMaxBytes: 15_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 2, videoMaxItemSeconds: 15, videoMinTotalSeconds: 2, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
-const QY_25_REFERENCES = { images: 30, videos: 10, audios: 10, imageMaxBytes: 30_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, audioMaxTotalSeconds: 150, videoMinShortEdge: 720, videoMaxShortEdge: 2160, videoMaxLongEdge: 2160 };
+const QY_25_REFERENCES = { images: 30, videos: 10, audios: 10, imageMaxBytes: 30_000_000, videoMaxBytes: 200_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, audioMaxItemSeconds: 15, audioMaxTotalSeconds: 150, videoMinShortEdge: 720, videoMaxShortEdge: 2160, videoMaxLongEdge: 2160 };
 const REF_431 = { images: 4, videos: 3, audios: 1, imageMaxBytes: 30_000_000, videoMaxBytes: 50_000_000, audioMaxBytes: 15_000_000, videoMinItemSeconds: 3, videoMaxItemSeconds: 10, videoMaxTotalSeconds: 15, audioMaxTotalSeconds: 15 };
 const QY_RATIOS = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"];
 const RATIOS_431 = ["16:9", "1:1", "9:16"];

@@ -307,10 +307,11 @@ function assertOrangeMoonReferences(model: NonNullable<ReturnType<typeof getOran
     if (videoDurationMs && videoDurationMs < (limits.videoMinTotalSeconds || 0) * 1000) throw new Error(`参考视频总时长不能少于 ${limits.videoMinTotalSeconds} 秒`);
     if (limits.videoMaxTotalSeconds && videoDurationMs > limits.videoMaxTotalSeconds * 1000) throw new Error(`参考视频总时长不能超过 ${limits.videoMaxTotalSeconds} 秒`);
     let audioDurationMs = 0;
+    const maxAudioItemSeconds = limits.audioMaxItemSeconds || limits.audioMaxTotalSeconds || 15;
     for (const audio of audios) {
         if (model.name === "qy-seedance-2.5" && audio.type && !isMp3OrWavReference(audio.type, audio.name)) throw new Error(`参考音频 ${audio.name} 需要使用 MP3 或 WAV 格式`);
         if (audio.bytes && audio.bytes > limits.audioMaxBytes) throw new Error(`参考音频 ${audio.name} 超过 ${Math.round(limits.audioMaxBytes / 1_000_000)}MB`);
-        if (audio.durationMs && audio.durationMs > (limits.audioMaxTotalSeconds || 15) * 1000) throw new Error(`参考音频 ${audio.name} 时长不能超过 ${limits.audioMaxTotalSeconds || 15} 秒`);
+        if (audio.durationMs && audio.durationMs > maxAudioItemSeconds * 1000) throw new Error(`参考音频 ${audio.name} 时长不能超过 ${maxAudioItemSeconds} 秒`);
         audioDurationMs += audio.durationMs || 0;
     }
     if (limits.audioMaxTotalSeconds && audioDurationMs > limits.audioMaxTotalSeconds * 1000) throw new Error(`参考音频总时长不能超过 ${limits.audioMaxTotalSeconds} 秒`);

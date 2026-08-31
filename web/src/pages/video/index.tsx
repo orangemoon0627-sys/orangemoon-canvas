@@ -105,6 +105,7 @@ export default function VideoPage() {
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const resolvedVideoConfig = buildVideoConfig(effectiveConfig, model);
     const referenceLimits = seedanceReferenceLimitsForModel(model);
+    const audioMaxItemSeconds = referenceLimits.audioMaxItemSeconds || referenceLimits.audioMaxTotalSeconds || 15;
     const canGenerate = Boolean(prompt.trim());
 
     useEffect(() => {
@@ -148,7 +149,8 @@ export default function VideoPage() {
                 }),
             ),
             message.warning,
-            referenceLimits.audioMaxTotalSeconds,
+            audioMaxItemSeconds,
+            referenceLimits.audioMaxTotalSeconds || audioMaxItemSeconds,
         );
         setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
         setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, referenceLimits.videos));
@@ -496,7 +498,7 @@ export default function VideoPage() {
                                     ))}
                                     {!audioReferences.length ? (
                                         <div className="flex min-w-full items-center justify-center text-center text-sm text-stone-500">
-                                            {referenceLimits.audios ? `暂无参考音频，最多 ${referenceLimits.audios} 个，mp3/wav，单个 ${Math.round(referenceLimits.audioMaxBytes / 1024 / 1024)}MB 内` : "当前模型不支持参考音频"}
+                                            {referenceLimits.audios ? `暂无参考音频，最多 ${referenceLimits.audios} 个，mp3/wav，单个不超过 ${audioMaxItemSeconds} 秒，总计不超过 ${referenceLimits.audioMaxTotalSeconds || audioMaxItemSeconds} 秒，${Math.round(referenceLimits.audioMaxBytes / 1024 / 1024)}MB 内` : "当前模型不支持参考音频"}
                                         </div>
                                     ) : null}
                                 </div>
@@ -782,12 +784,12 @@ function isSupportedAudioFile(file: File) {
     return file.type === "audio/mpeg" || file.type === "audio/mp3" || file.type === "audio/wav" || file.type === "audio/x-wav" || /\.(mp3|wav)$/i.test(file.name);
 }
 
-function filterAudioReferencesByDuration(existing: ReferenceAudio[], next: ReferenceAudio[], warn: (content: string) => void, maxTotalSeconds = 15) {
+function filterAudioReferencesByDuration(existing: ReferenceAudio[], next: ReferenceAudio[], warn: (content: string) => void, maxItemSeconds = 15, maxTotalSeconds = maxItemSeconds) {
     let total = existing.reduce((sum, item) => sum + (item.durationMs || 0), 0);
     const accepted: ReferenceAudio[] = [];
     let skipped = false;
     for (const item of next) {
-        if (item.durationMs && (item.durationMs < 2000 || item.durationMs > maxTotalSeconds * 1000)) {
+        if (item.durationMs && (item.durationMs < 2000 || item.durationMs > maxItemSeconds * 1000)) {
             skipped = true;
             continue;
         }
@@ -798,7 +800,7 @@ function filterAudioReferencesByDuration(existing: ReferenceAudio[], next: Refer
         total += item.durationMs || 0;
         accepted.push(item);
     }
-    if (skipped) warn(`已忽略不符合时长要求的参考音频：单个至少 2 秒，总时长不超过 ${maxTotalSeconds} 秒`);
+    if (skipped) warn(`已忽略不符合时长要求的参考音频：单个 2-${maxItemSeconds} 秒，总时长不超过 ${maxTotalSeconds} 秒`);
     return accepted;
 }
 

@@ -44,4 +44,5 @@ test("独家视频 API 按各自支持的分辨率选择真实费率", () => {
     assert.equal(providerBilling(qy25, "720p")?.usd, 0.24);
     assert.equal(qy25.videoReferenceMultiplier, 1.6);
     assert.deepEqual(qy25.references && { images: qy25.references.images, videos: qy25.references.videos, audios: qy25.references.audios }, { images: 30, videos: 10, audios: 10 });
+    assert.equal(qy25.references?.audioMaxItemSeconds, 15);
 });

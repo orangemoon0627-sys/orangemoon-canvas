@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { canonicalOrangeMoonVideoModel, getOrangeMoonModelPublicName, getOrangeMoonVideoModel, ORANGE_MOON_VIDEO_MODEL_IDS, ORANGE_MOON_VIDEO_MODELS, removeOrangeMoonInternalModelPrefix } from "./orange-moon-provider";
-import { normalizeSeedanceDurationForModel, partitionSeedanceReferenceImages, seedanceFrameReferenceError } from "./seedance-video";
+import { normalizeSeedanceDurationForModel, partitionSeedanceReferenceImages, seedanceFrameReferenceError, seedanceReferenceSetError } from "./seedance-video";
 
 test("only exposes the five exclusive video APIs and resolves their supported resolutions", () => {
     assert.deepEqual(ORANGE_MOON_VIDEO_MODELS.map((model) => model.name), [...ORANGE_MOON_VIDEO_MODEL_IDS]);
@@ -44,4 +44,13 @@ test("public model names hide the internal qy prefix while preserving the real m
     assert.equal(getOrangeMoonModelPublicName("431-Seedream-2.0"), "431-Seedream-2.0");
     assert.equal(removeOrangeMoonInternalModelPrefix("当前使用 qy-seedance-2.0-fast"), "当前使用 seedance-2.0-fast");
     assert.equal(removeOrangeMoonInternalModelPrefix("当前使用 qy-seedance-2.5"), "当前使用 seedance-2.5");
+});
+
+test("Seedance 2.5 rejects reference audio longer than the upstream 15-second item limit", () => {
+    const model = getOrangeMoonVideoModel("qy-seedance-2.5");
+    assert.equal(model?.references.audioMaxItemSeconds, 15);
+    assert.equal(
+        seedanceReferenceSetError("qy-seedance-2.5", [], [], [{ id: "audio-1", name: "配乐.mp3", type: "audio/mpeg", url: "blob:audio", durationMs: 30_000 }]),
+        "配乐.mp3 时长不能超过 15 秒",
+    );
 });
