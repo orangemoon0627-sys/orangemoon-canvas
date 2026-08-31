@@ -11,6 +11,8 @@ export const SEEDANCE_REFERENCE_LIMITS = {
     imageMaxBytes: 30 * 1024 * 1024,
     videoMaxBytes: 50 * 1024 * 1024,
     audioMaxBytes: 15 * 1024 * 1024,
+    audioMaxItemSeconds: 15,
+    audioMaxTotalSeconds: 15,
 };
 
 export const seedanceResolutionOptions = [
@@ -183,15 +185,28 @@ export function seedanceReferenceLimitsForModel(model: string): NonNullable<Retu
     return getOrangeMoonVideoModel(modelOptionName(model))?.references || SEEDANCE_REFERENCE_LIMITS;
 }
 
+export function partitionSeedanceAudioReferences(model: string, audios: ReferenceAudio[]) {
+    const limits = seedanceReferenceLimitsForModel(model);
+    const maxReferenceDurationMs = (limits.audioMaxItemSeconds || limits.audioMaxTotalSeconds || 15) * 1000;
+    const soundtrackCandidates = audios.filter((audio) => Boolean(audio.durationMs && audio.durationMs > maxReferenceDurationMs));
+    if (soundtrackCandidates.length > 1) {
+        return { referenceAudios: audios.filter((audio) => !soundtrackCandidates.includes(audio)), soundtrack: undefined, error: "当前暂只支持 1 条长音频作为成片配乐，请先合并音频" };
+    }
+    const soundtrack = soundtrackCandidates[0];
+    return { referenceAudios: soundtrack ? audios.filter((audio) => audio !== soundtrack) : audios, soundtrack, error: "" };
+}
+
 export function seedanceReferenceSetError(model: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[], referenceMode: VideoReferenceMode = "ref") {
     const orangeMoonModel = getOrangeMoonVideoModel(modelOptionName(model));
     if (!orangeMoonModel) return seedanceVideoReferenceError(videos);
+    const audioPlan = partitionSeedanceAudioReferences(model, audios);
+    if (audioPlan.error) return audioPlan.error;
     const frameError = seedanceFrameReferenceError(orangeMoonModel, referenceMode, images.length);
     if (frameError) return frameError;
     const limits = orangeMoonModel.references;
     if (images.length > limits.images) return `当前模型最多支持 ${limits.images} 张参考图`;
     if (videos.length > limits.videos) return limits.videos ? `当前模型最多支持 ${limits.videos} 段参考视频` : "当前模型不支持参考视频";
-    if (audios.length > limits.audios) return limits.audios ? `当前模型最多支持 ${limits.audios} 段参考音频` : "当前模型不支持参考音频";
+    if (audioPlan.referenceAudios.length > limits.audios) return limits.audios ? `当前模型最多支持 ${limits.audios} 段参考音频` : "当前模型不支持参考音频";
     let totalDurationMs = 0;
     for (const video of videos) {
         if (orangeMoonModel.name === "qy-seedance-2.5" && video.type && !isMp4OrMov(video.type, video.name)) return `${video.name} 需要使用 MP4 或 MOV 格式`;
@@ -212,11 +227,11 @@ export function seedanceReferenceSetError(model: string, images: ReferenceImage[
     if (totalDurationMs && totalDurationMs < (limits.videoMinTotalSeconds || 0) * 1000) return `参考视频总时长不能少于 ${limits.videoMinTotalSeconds} 秒`;
     if (limits.videoMaxTotalSeconds && totalDurationMs > limits.videoMaxTotalSeconds * 1000) return `参考视频总时长不能超过 ${limits.videoMaxTotalSeconds} 秒`;
     let audioDurationMs = 0;
-    const maxAudioItemSeconds = limits.audioMaxItemSeconds || limits.audioMaxTotalSeconds || 15;
     for (const audio of audios) {
         if (orangeMoonModel.name === "qy-seedance-2.5" && audio.type && !isMp3OrWav(audio.type, audio.name)) return `${audio.name} 需要使用 MP3 或 WAV 格式`;
         if (audio.bytes && audio.bytes > limits.audioMaxBytes) return `${audio.name} 超过 ${Math.round(limits.audioMaxBytes / 1_000_000)}MB，请压缩后再上传`;
-        if (audio.durationMs && audio.durationMs > maxAudioItemSeconds * 1000) return `${audio.name} 时长不能超过 ${maxAudioItemSeconds} 秒`;
+    }
+    for (const audio of audioPlan.referenceAudios) {
         audioDurationMs += audio.durationMs || 0;
     }
     if (limits.audioMaxTotalSeconds && audioDurationMs > limits.audioMaxTotalSeconds * 1000) return `参考音频总时长不能超过 ${limits.audioMaxTotalSeconds} 秒`;

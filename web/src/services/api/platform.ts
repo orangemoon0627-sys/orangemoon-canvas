@@ -419,6 +419,10 @@ export function uploadCanvasMedia(storageKey: string, blob: Blob) {
     return platformRequest<{ ok: true; media: PlatformCanvasMedia }>(`/canvas-media/${encodeURIComponent(storageKey)}`, { method: "PUT", body });
 }
 
+export function composeCanvasMedia(videoStorageKey: string, audioStorageKey: string, signal?: AbortSignal) {
+    return platformRequest<{ ok: true; media: { url: string; storageKey: string; bytes: number; mimeType: string } }>("/canvas-media/compose", { method: "POST", body: JSON.stringify({ videoStorageKey, audioStorageKey }), signal });
+}
+
 export function importGeneratedVideoMedia(url: string) {
     return platformRequest<{ ok: true; media: { url: string; storageKey: string; bytes: number; mimeType: string } }>("/providers/video-media/import", { method: "POST", body: JSON.stringify({ url }) });
 }

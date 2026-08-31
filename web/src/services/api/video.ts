@@ -2,9 +2,11 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import { dataUrlToFile } from "@/lib/image-utils";
+import { ensureAccountMediaUploaded } from "@/services/account-media";
+import { composeCanvasMedia } from "@/services/api/platform";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, partitionSeedanceReferenceImages, seedanceFrameReferenceError, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, partitionSeedanceAudioReferences, partitionSeedanceReferenceImages, seedanceFrameReferenceError, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { canonicalOrangeMoonVideoModel, getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
 import { prepareReferenceImagesForJson } from "@/lib/reference-image-upload";
 import { buildApiUrl, isOrangeMoonManagedConfig, modelOptionName, normalizeVideoReferenceMode, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
@@ -38,10 +40,10 @@ type MetaJingTask = {
     price_usd?: number;
 };
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
-type RequestOptions = { signal?: AbortSignal; onTaskCreated?: (task: VideoGenerationTask) => void };
+type RequestOptions = { signal?: AbortSignal; onTaskCreated?: (task: VideoGenerationTask) => void; onStage?: (stage: string) => void };
 
-export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "metajing" | "plugin"; model: string };
+export type VideoGenerationResult = { blob?: Blob; url?: string; storageKey?: string; bytes?: number; mimeType?: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "metajing" | "plugin"; model: string; soundtrack?: ReferenceAudio };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
@@ -64,7 +66,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
     return waitForVideoGenerationTask(config, task, options);
 }
 
-export async function waitForVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: Pick<RequestOptions, "signal">): Promise<VideoGenerationResult> {
+export async function waitForVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationResult> {
     for (let attempt = 0; attempt < 720; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
@@ -81,10 +83,17 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const script = resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
-    if (isOrangeMoonManagedConfig(requestConfig)) return createMetaJingVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+    if (isOrangeMoonManagedConfig(requestConfig)) {
+        const audioPlan = await prepareSeedanceAudioPlan(selectedModel, audioReferences, options);
+        const task = await createMetaJingVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioPlan.referenceAudios, options);
+        return audioPlan.soundtrack ? { ...task, soundtrack: audioPlan.soundtrack } : task;
+    }
     assertVideoConfig(requestConfig, requestConfig.model);
     if (isSeedanceVideoConfig(requestConfig)) {
-        return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+        const audioPlan = await prepareSeedanceAudioPlan(selectedModel, audioReferences, options);
+        const taskConfig = audioPlan.soundtrack ? { ...requestConfig, videoGenerateAudio: "false" } : requestConfig;
+        const task = await createSeedanceTask(taskConfig, selectedModel, prompt, references, videoReferences, audioPlan.referenceAudios, options);
+        return audioPlan.soundtrack ? { ...task, soundtrack: audioPlan.soundtrack } : task;
     }
     if (videoReferences.length || audioReferences.length) {
         throw new Error("当前视频接口不支持参考视频或参考音频，请切换到 Seedance 2.0 / 火山 Agent Plan 模型，或移除参考资产");
@@ -93,14 +102,24 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    let state: VideoGenerationTaskState;
     if (task.provider === "plugin") {
         const result = pluginVideoResults.get(task.id);
-        return result ? { status: "completed", result } : { status: "failed", error: "插件视频任务已失效，请重新生成" };
+        state = result ? { status: "completed", result } : { status: "failed", error: "插件视频任务已失效，请重新生成" };
+    } else {
+        const requestConfig = resolveModelRequestConfig(config, task.model);
+        if (task.provider === "metajing") state = await pollMetaJingVideoTask(task, options);
+        else {
+            assertVideoConfig(requestConfig, requestConfig.model);
+            state = task.provider === "seedance" ? await pollSeedanceTask(requestConfig, task, options) : await pollOpenAIVideoTask(requestConfig, task, options);
+        }
     }
-    const requestConfig = resolveModelRequestConfig(config, task.model);
-    if (task.provider === "metajing") return pollMetaJingVideoTask(task, options);
-    assertVideoConfig(requestConfig, requestConfig.model);
-    return task.provider === "seedance" ? pollSeedanceTask(requestConfig, task, options) : pollOpenAIVideoTask(requestConfig, task, options);
+    if (state.status !== "completed" || !task.soundtrack) return state;
+    try {
+        return { status: "completed", result: await composeVideoSoundtrack(state.result, task.soundtrack, options) };
+    } catch (error) {
+        return { status: "failed", error: `视频已生成，但成片音频合成失败：${error instanceof Error ? error.message : "请稍后重试"}` };
+    }
 }
 
 export function videoPollDelayMs(task: VideoGenerationTask, attempt: number) {
@@ -149,6 +168,7 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
 }
 
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
+    if (result.url && result.storageKey) return { url: result.url, storageKey: result.storageKey, bytes: result.bytes || 0, mimeType: result.mimeType || "video/mp4" };
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
         const storageKey = platformCanvasMediaStorageKey(result.url);
@@ -156,6 +176,54 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
         return uploadMediaFile(result.url, "video");
     }
     throw new Error("视频接口没有返回可播放的视频");
+}
+
+async function prepareSeedanceAudioPlan(model: string, audioReferences: ReferenceAudio[], options?: RequestOptions) {
+    const plan = partitionSeedanceAudioReferences(model, audioReferences);
+    if (plan.error) throw new Error(plan.error);
+    if (!plan.soundtrack) return plan;
+    options?.onStage?.("正在准备成片音频");
+    const soundtrack = await prepareSoundtrack(plan.soundtrack, options?.signal);
+    return { ...plan, soundtrack };
+}
+
+async function prepareSoundtrack(audio: ReferenceAudio, signal?: AbortSignal): Promise<ReferenceAudio> {
+    const blob = await resolveReferenceAudioBlob(audio, signal);
+    if (!blob) throw new Error(`成片配乐“${audio.name}”读取失败，请重新上传`);
+    const stored = audio.storageKey?.startsWith("audio:")
+        ? { storageKey: audio.storageKey, url: "", bytes: audio.bytes || blob.size, mimeType: audio.type || blob.type }
+        : await uploadMediaFile(blob, "audio");
+    const unresolved = await ensureAccountMediaUploaded([{ storageKey: stored.storageKey, blob }]);
+    if (unresolved.length) throw new Error(`成片配乐“${audio.name}”上传失败，请重新上传`);
+    return { ...audio, url: "", storageKey: stored.storageKey, bytes: stored.bytes, type: stored.mimeType || audio.type || blob.type };
+}
+
+async function composeVideoSoundtrack(result: VideoGenerationResult, soundtrack: ReferenceAudio, options?: RequestOptions): Promise<VideoGenerationResult> {
+    if (!soundtrack.storageKey?.startsWith("audio:")) throw new Error("成片配乐尚未保存到媒体库");
+    options?.onStage?.("正在保存视频产物");
+    const video = await storeGeneratedVideo(result);
+    const videoBlob = result.blob || (platformCanvasMediaStorageKey(result.url || "") ? null : await getMediaBlob(video.storageKey));
+    const audioBlob = await getMediaBlob(soundtrack.storageKey);
+    const unresolved = await ensureAccountMediaUploaded([
+        { storageKey: video.storageKey, blob: videoBlob },
+        { storageKey: soundtrack.storageKey, blob: audioBlob },
+    ]);
+    if (unresolved.length) throw new Error("音视频文件尚未完整上传到媒体库");
+    options?.onStage?.("正在合成成片音频");
+    const { media } = await composeCanvasMedia(video.storageKey, soundtrack.storageKey, options?.signal);
+    options?.onStage?.("正在保存产物");
+    return { url: media.url, storageKey: media.storageKey, bytes: media.bytes, mimeType: media.mimeType };
+}
+
+async function resolveReferenceAudioBlob(audio: ReferenceAudio, signal?: AbortSignal) {
+    if (audio.storageKey) {
+        const blob = await getMediaBlob(audio.storageKey);
+        if (blob) return blob;
+    }
+    if (!audio.url) return null;
+    const response = await fetch(audio.url, { signal });
+    if (!response.ok) throw new Error(`成片配乐下载失败（${response.status}）`);
+    return response.blob();
 }
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {

@@ -1,4 +1,4 @@
-import type { VideoReferenceMode } from "@/types/media";
+import type { ReferenceAudio, VideoReferenceMode } from "@/types/media";
 
 export type Position = {
     x: number;
@@ -58,6 +58,7 @@ export type CanvasNodeMetadata = {
     generationTaskId?: string;
     generationTaskProvider?: "openai" | "seedance" | "metajing" | "plugin";
     generationTaskModel?: string;
+    generationTaskSoundtrack?: ReferenceAudio;
     references?: string[];
     naturalWidth?: number;
     naturalHeight?: number;

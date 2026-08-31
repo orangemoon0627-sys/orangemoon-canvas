@@ -132,6 +132,15 @@ const NODE_STATUS_IDLE = "idle" as const;
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
+
+function videoGenerationStageProgress(stage: string) {
+    if (stage.includes("准备成片音频")) return 6;
+    if (stage.includes("保存视频产物")) return 94;
+    if (stage.includes("合成成片音频")) return 97;
+    if (stage.includes("保存产物")) return 99;
+    return 10;
+}
+
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
 要求：
@@ -2401,8 +2410,11 @@ function InfiniteCanvasPage() {
                     try {
                         const generatedVideo = await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, {
                             signal: controller.signal,
+                            onStage: (stage) => {
+                                setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, generationStage: stage, generationProgressFloor: videoGenerationStageProgress(stage) } } : node)));
+                            },
                             onTaskCreated: (task) => {
-                                setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, generationTaskId: task.id, generationTaskProvider: task.provider, generationTaskModel: task.model, generationStage: "任务已提交，正在等待视频生成", generationProgressFloor: 10 } } : node)));
+                                setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, generationTaskId: task.id, generationTaskProvider: task.provider, generationTaskModel: task.model, generationTaskSoundtrack: task.soundtrack, generationStage: "任务已提交，正在等待视频生成", generationProgressFloor: 10 } } : node)));
                             },
                         });
                         setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: generationSavingMetadata(node.metadata) } : node)));
@@ -2431,6 +2443,7 @@ function InfiniteCanvasPage() {
                                               generationTaskId: undefined,
                                               generationTaskProvider: undefined,
                                               generationTaskModel: undefined,
+                                              generationTaskSoundtrack: undefined,
                                           },
                                       }
                                     : node,
@@ -2619,8 +2632,11 @@ function InfiniteCanvasPage() {
                 if (node.type === CanvasNodeType.Video) {
                     const generatedVideo = await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], {
                         signal: controller.signal,
+                        onStage: (stage) => {
+                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, generationStage: stage, generationProgressFloor: videoGenerationStageProgress(stage) } } : item)));
+                        },
                         onTaskCreated: (task) => {
-                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, generationTaskId: task.id, generationTaskProvider: task.provider, generationTaskModel: task.model, generationStage: "任务已提交，正在等待视频生成", generationProgressFloor: 10 } } : item)));
+                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, generationTaskId: task.id, generationTaskProvider: task.provider, generationTaskModel: task.model, generationTaskSoundtrack: task.soundtrack, generationStage: "任务已提交，正在等待视频生成", generationProgressFloor: 10 } } : item)));
                         },
                     });
                     setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: generationSavingMetadata(item.metadata) } : item)));
@@ -2648,6 +2664,7 @@ function InfiniteCanvasPage() {
                                           generationTaskId: undefined,
                                           generationTaskProvider: undefined,
                                           generationTaskModel: undefined,
+                                          generationTaskSoundtrack: undefined,
                                       },
                                   }
                                 : item,
@@ -2735,11 +2752,17 @@ function InfiniteCanvasPage() {
                 id: taskId,
                 provider: node.metadata?.generationTaskProvider || "metajing",
                 model: node.metadata?.generationTaskModel || generationConfig.model,
+                soundtrack: node.metadata?.generationTaskSoundtrack,
             };
             const controller = startGenerationRequest(node.id, node.id, node.id);
             setRunningNodeId(node.id);
             setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, generationStage: "已恢复任务，正在查询生成结果", errorDetails: undefined } } : item)));
-            void waitForVideoGenerationTask(generationConfig, task, { signal: controller.signal })
+            void waitForVideoGenerationTask(generationConfig, task, {
+                signal: controller.signal,
+                onStage: (stage) => {
+                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, generationStage: stage, generationProgressFloor: videoGenerationStageProgress(stage) } } : item)));
+                },
+            })
                 .then(async (result) => {
                     setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: generationSavingMetadata(item.metadata) } : item)));
                     const video = await storeGeneratedVideo(result);
@@ -2758,6 +2781,7 @@ function InfiniteCanvasPage() {
                                     generationTaskId: undefined,
                                     generationTaskProvider: undefined,
                                     generationTaskModel: undefined,
+                                    generationTaskSoundtrack: undefined,
                                 },
                             };
                         }),

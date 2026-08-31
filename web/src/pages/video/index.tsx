@@ -12,7 +12,7 @@ import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeVa
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { getOrangeMoonVideoModel } from "@/lib/orange-moon-provider";
-import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceReferenceLabel, seedanceReferenceLimitsForModel, seedanceReferenceSetError } from "@/lib/seedance-video";
+import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDurationForModel, normalizeSeedanceRatio, normalizeSeedanceResolution, partitionSeedanceAudioReferences, seedanceReferenceLabel, seedanceReferenceLimitsForModel, seedanceReferenceSetError } from "@/lib/seedance-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, videoPollDelayMs, type VideoGenerationTask } from "@/services/api/video";
@@ -92,6 +92,7 @@ export default function VideoPage() {
     const [assetPickerOpen, setAssetPickerOpen] = useState(false);
     const [startedAt, setStartedAt] = useState(0);
     const [elapsedMs, setElapsedMs] = useState(0);
+    const [generationStage, setGenerationStage] = useState("");
     const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
     const [previewLog, setPreviewLog] = useState<GenerationLog | null>(null);
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -106,6 +107,7 @@ export default function VideoPage() {
     const resolvedVideoConfig = buildVideoConfig(effectiveConfig, model);
     const referenceLimits = seedanceReferenceLimitsForModel(model);
     const audioMaxItemSeconds = referenceLimits.audioMaxItemSeconds || referenceLimits.audioMaxTotalSeconds || 15;
+    const soundtrackAudioId = partitionSeedanceAudioReferences(model, audioReferences).soundtrack?.id;
     const canGenerate = Boolean(prompt.trim());
 
     useEffect(() => {
@@ -152,6 +154,9 @@ export default function VideoPage() {
             audioMaxItemSeconds,
             referenceLimits.audioMaxTotalSeconds || audioMaxItemSeconds,
         );
+        if (nextAudioReferences.some((item) => Boolean(item.durationMs && item.durationMs > audioMaxItemSeconds * 1000))) {
+            message.info(`超过 ${audioMaxItemSeconds} 秒的音频会在视频生成后自动合成到成片，不会作为 Seedance 参考音频提交`);
+        }
         setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
         setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, referenceLimits.videos));
         setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, referenceLimits.audios));
@@ -186,6 +191,7 @@ export default function VideoPage() {
             return;
         }
         setElapsedMs(0);
+        setGenerationStage("正在创建视频任务");
         setRunning(true);
         if (agentTaskId) updateAgentTask(agentTaskId, { status: "running", error: undefined });
         setPreviewLog(null);
@@ -193,7 +199,8 @@ export default function VideoPage() {
         const batchStartedAt = performance.now();
         setStartedAt(batchStartedAt);
         try {
-            const task = await createVideoGenerationTask(snapshot.config, snapshot.text, snapshot.references, snapshot.videoReferences, snapshot.audioReferences);
+            const task = await createVideoGenerationTask(snapshot.config, snapshot.text, snapshot.references, snapshot.videoReferences, snapshot.audioReferences, { onStage: setGenerationStage });
+            setGenerationStage("任务已提交，正在等待视频生成");
             const log = buildLog({ prompt: snapshot.text, model, config: snapshot.config, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: 0, status: "生成中", task });
             await saveLog(log, false);
             void pollGenerationLog(log, snapshot.config, agentTaskId);
@@ -203,6 +210,7 @@ export default function VideoPage() {
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
             await saveLog(buildLog({ prompt: snapshot.text, model, config: snapshot.config, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: performance.now() - batchStartedAt, status: "失败", error: errorMessage }));
             message.error(errorMessage);
+            setGenerationStage("");
             setRunning(false);
         }
     };
@@ -288,6 +296,7 @@ export default function VideoPage() {
         setAudioReferences([]);
         setResults([]);
         setElapsedMs(0);
+        setGenerationStage("");
         setStartedAt(0);
         setSelectedLogIds([]);
         setPreviewLog(null);
@@ -329,13 +338,15 @@ export default function VideoPage() {
         if (!log.task || activeLogIdsRef.current.has(log.id)) return;
         activeLogIdsRef.current.add(log.id);
         setRunning(true);
+        setGenerationStage("正在查询视频生成进度");
         setStartedAt((value) => value || performance.now());
         setResults((value) => (value.length ? value : [{ id: log.id, status: "pending" }]));
         const taskConfig = buildVideoConfig({ ...effectiveConfig, ...log.config }, log.task.model || log.model);
         try {
             for (let attempt = 0; attempt < 120; attempt += 1) {
-                const state = await pollVideoGenerationTask(configOverride || taskConfig, log.task);
+                const state = await pollVideoGenerationTask(configOverride || taskConfig, log.task, { onStage: setGenerationStage });
                 if (state.status === "completed") {
+                    setGenerationStage("正在保存产物");
                     const stored = await storeGeneratedVideo(state.result);
                     const nextVideo: GeneratedVideo = {
                         id: nanoid(),
@@ -351,6 +362,7 @@ export default function VideoPage() {
                     if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
                     await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined });
                     message.success("视频已生成");
+                    setGenerationStage("");
                     return;
                 }
                 if (state.status === "failed") throw new Error(state.error);
@@ -363,11 +375,13 @@ export default function VideoPage() {
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
             await saveLog({ ...log, status: "失败", durationMs: Date.now() - log.createdAt, error: errorMessage });
             message.error(errorMessage);
+            setGenerationStage("");
         } finally {
             activeLogIdsRef.current.delete(log.id);
             if (!activeLogIdsRef.current.size) {
                 setRunning(false);
                 setStartedAt(0);
+                setGenerationStage("");
             }
         }
     };
@@ -476,7 +490,7 @@ export default function VideoPage() {
 
                             <div className="min-w-0">
                                 <div className="mb-2 flex items-center justify-between gap-3">
-                                    <span className="text-base font-semibold">参考音频</span>
+                                    <span className="text-base font-semibold">参考音频 / 成片配乐</span>
                                     <Button size="small" icon={<Upload className="size-3.5" />} disabled={!referenceLimits.audios} onClick={() => fileInputRef.current?.click()}>
                                         上传
                                     </Button>
@@ -486,7 +500,9 @@ export default function VideoPage() {
                                         <div key={item.id} className="group relative flex h-20 w-48 shrink-0 flex-col justify-center gap-2 rounded-md border border-stone-200 bg-stone-50 px-2 dark:border-stone-800 dark:bg-stone-900">
                                             <div className="flex min-w-0 items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
                                                 <Music2 className="size-4 shrink-0" />
-                                                <span className="shrink-0 rounded bg-stone-200 px-1 text-[10px] text-stone-700 dark:bg-stone-800 dark:text-stone-200">{seedanceReferenceLabel("audio", index)}</span>
+                                                <span className={`shrink-0 rounded px-1 text-[10px] ${item.id === soundtrackAudioId ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-stone-200 text-stone-700 dark:bg-stone-800 dark:text-stone-200"}`}>
+                                                    {item.id === soundtrackAudioId ? "成片配乐" : seedanceReferenceLabel("audio", index)}
+                                                </span>
                                                 <span className="truncate">{item.name}</span>
                                             </div>
                                             <audio src={item.url} controls className="h-8 w-full" preload="metadata" />
@@ -498,7 +514,7 @@ export default function VideoPage() {
                                     ))}
                                     {!audioReferences.length ? (
                                         <div className="flex min-w-full items-center justify-center text-center text-sm text-stone-500">
-                                            {referenceLimits.audios ? `暂无参考音频，最多 ${referenceLimits.audios} 个，mp3/wav，单个不超过 ${audioMaxItemSeconds} 秒，总计不超过 ${referenceLimits.audioMaxTotalSeconds || audioMaxItemSeconds} 秒，${Math.round(referenceLimits.audioMaxBytes / 1024 / 1024)}MB 内` : "当前模型不支持参考音频"}
+                                            {referenceLimits.audios ? `可上传短参考音频，或 1 条超过 ${audioMaxItemSeconds} 秒的成片配乐；mp3/wav，单文件 ${Math.round(referenceLimits.audioMaxBytes / 1024 / 1024)}MB 内` : "当前模型不支持参考音频"}
                                         </div>
                                     ) : null}
                                 </div>
@@ -528,11 +544,11 @@ export default function VideoPage() {
                     <div className="workbench-panel thin-scrollbar rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800 lg:p-5">
                         <div className="mb-4 flex items-center justify-between gap-3">
                             <h2 className="text-xl font-semibold">生成结果</h2>
-                            {running ? <Tag className="m-0 px-2 py-1">等待 {formatDuration(elapsedMs)}</Tag> : null}
+                            {running ? <Tag className="m-0 px-2 py-1">{generationStage || "生成中"} · {formatDuration(elapsedMs)}</Tag> : null}
                         </div>
                         {results.length ? (
                             <div className="grid gap-4">
-                                {results.map((result) => (result.status === "success" && result.video ? <ResultVideoCard key={result.id} video={result.video} onDownload={downloadVideo} onSaveAsset={saveResultToAssets} /> : result.status === "failed" ? <FailedVideoCard key={result.id} error={result.error || "生成失败"} onRetry={retryResult} /> : <PendingVideoCard key={result.id} />))}
+                                {results.map((result) => (result.status === "success" && result.video ? <ResultVideoCard key={result.id} video={result.video} onDownload={downloadVideo} onSaveAsset={saveResultToAssets} /> : result.status === "failed" ? <FailedVideoCard key={result.id} error={result.error || "生成失败"} onRetry={retryResult} /> : <PendingVideoCard key={result.id} stage={generationStage} />))}
                             </div>
                         ) : (
                             <div className="flex min-h-[320px] flex-col items-center justify-center rounded-lg border border-dashed border-stone-300 text-center dark:border-stone-700 lg:min-h-[560px]">
@@ -612,12 +628,12 @@ function ResultVideoCard({ video, onDownload, onSaveAsset }: { video: GeneratedV
     );
 }
 
-function PendingVideoCard() {
+function PendingVideoCard({ stage }: { stage?: string }) {
     return (
         <div className="relative aspect-video overflow-hidden rounded-lg border border-dashed border-stone-300 bg-stone-50 dark:border-stone-700 dark:bg-stone-900">
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-stone-500 dark:text-stone-400">
                 <LoaderCircle className="size-6 animate-spin" />
-                <span>生成中</span>
+                <span>{stage || "生成中"}</span>
             </div>
         </div>
     );
@@ -773,6 +789,7 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
 function serializeLog(log: GenerationLog): GenerationLog {
     return {
         ...log,
+        task: log.task?.soundtrack?.storageKey ? { ...log.task, soundtrack: { ...log.task.soundtrack, url: "" } } : log.task,
         references: log.references.map((item) => ({ ...item, dataUrl: item.storageKey ? "" : item.dataUrl })),
         videoReferences: log.videoReferences.map((item) => (item.storageKey ? { ...item, url: "" } : item)),
         audioReferences: log.audioReferences.map((item) => (item.storageKey ? { ...item, url: "" } : item)),
@@ -785,22 +802,35 @@ function isSupportedAudioFile(file: File) {
 }
 
 function filterAudioReferencesByDuration(existing: ReferenceAudio[], next: ReferenceAudio[], warn: (content: string) => void, maxItemSeconds = 15, maxTotalSeconds = maxItemSeconds) {
-    let total = existing.reduce((sum, item) => sum + (item.durationMs || 0), 0);
+    const maxItemMs = maxItemSeconds * 1000;
+    let total = existing.filter((item) => !item.durationMs || item.durationMs <= maxItemMs).reduce((sum, item) => sum + (item.durationMs || 0), 0);
+    let hasSoundtrack = existing.some((item) => Boolean(item.durationMs && item.durationMs > maxItemMs));
     const accepted: ReferenceAudio[] = [];
-    let skipped = false;
+    let skippedReference = false;
+    let skippedSoundtrack = false;
     for (const item of next) {
-        if (item.durationMs && (item.durationMs < 2000 || item.durationMs > maxItemSeconds * 1000)) {
-            skipped = true;
+        if (item.durationMs && item.durationMs < 2000) {
+            skippedReference = true;
+            continue;
+        }
+        if (item.durationMs && item.durationMs > maxItemMs) {
+            if (hasSoundtrack) {
+                skippedSoundtrack = true;
+                continue;
+            }
+            hasSoundtrack = true;
+            accepted.push(item);
             continue;
         }
         if (item.durationMs && total + item.durationMs > maxTotalSeconds * 1000) {
-            skipped = true;
+            skippedReference = true;
             continue;
         }
         total += item.durationMs || 0;
         accepted.push(item);
     }
-    if (skipped) warn(`已忽略不符合时长要求的参考音频：单个 2-${maxItemSeconds} 秒，总时长不超过 ${maxTotalSeconds} 秒`);
+    if (skippedReference) warn(`已忽略不符合时长要求的短参考音频：单个 2-${maxItemSeconds} 秒，总时长不超过 ${maxTotalSeconds} 秒`);
+    if (skippedSoundtrack) warn("目前只支持 1 条长音频作为成片配乐，已忽略多余长音频");
     return accepted;
 }
 

@@ -5,7 +5,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
-import { MissingCanvasMediaDto } from "./canvas-media.dto";
+import { ComposeCanvasMediaDto, MissingCanvasMediaDto } from "./canvas-media.dto";
 import { CanvasMediaService, serializeCanvasMedia } from "./canvas-media.service";
 
 @Controller("canvas-media")
@@ -17,6 +17,11 @@ export class CanvasMediaController {
     @HttpCode(200)
     async missing(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Body() input: MissingCanvasMediaDto) {
         return { ok: true, missing: await this.media.missing(user.id, workspaceId, input.keys) };
+    }
+
+    @Post("compose")
+    async compose(@CurrentUser() user: AuthenticatedUser, @Headers("x-workspace-id") workspaceId: string | undefined, @Body() input: ComposeCanvasMediaDto) {
+        return { ok: true, media: await this.media.composeWithAudio(user.id, workspaceId, input.videoStorageKey, input.audioStorageKey) };
     }
 
     @Put(":storageKey")

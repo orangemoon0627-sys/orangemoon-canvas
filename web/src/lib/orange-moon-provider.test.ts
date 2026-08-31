@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { canonicalOrangeMoonVideoModel, getOrangeMoonModelPublicName, getOrangeMoonVideoModel, ORANGE_MOON_VIDEO_MODEL_IDS, ORANGE_MOON_VIDEO_MODELS, removeOrangeMoonInternalModelPrefix } from "./orange-moon-provider";
-import { normalizeSeedanceDurationForModel, partitionSeedanceReferenceImages, seedanceFrameReferenceError, seedanceReferenceSetError } from "./seedance-video";
+import { normalizeSeedanceDurationForModel, partitionSeedanceAudioReferences, partitionSeedanceReferenceImages, seedanceFrameReferenceError, seedanceReferenceSetError } from "./seedance-video";
 
 test("only exposes the five exclusive video APIs and resolves their supported resolutions", () => {
     assert.deepEqual(ORANGE_MOON_VIDEO_MODELS.map((model) => model.name), [...ORANGE_MOON_VIDEO_MODEL_IDS]);
@@ -46,11 +46,28 @@ test("public model names hide the internal qy prefix while preserving the real m
     assert.equal(removeOrangeMoonInternalModelPrefix("当前使用 qy-seedance-2.5"), "当前使用 seedance-2.5");
 });
 
-test("Seedance 2.5 rejects reference audio longer than the upstream 15-second item limit", () => {
+test("Seedance 2.5 routes long audio to the final soundtrack instead of the reference-audio field", () => {
     const model = getOrangeMoonVideoModel("qy-seedance-2.5");
     assert.equal(model?.references.audioMaxItemSeconds, 15);
+    const audio = { id: "audio-1", name: "配乐.mp3", type: "audio/mpeg", url: "blob:audio", durationMs: 29_000 };
+    assert.deepEqual(partitionSeedanceAudioReferences("qy-seedance-2.5", [audio]), { referenceAudios: [], soundtrack: audio, error: "" });
     assert.equal(
         seedanceReferenceSetError("qy-seedance-2.5", [], [], [{ id: "audio-1", name: "配乐.mp3", type: "audio/mpeg", url: "blob:audio", durationMs: 30_000 }]),
-        "配乐.mp3 时长不能超过 15 秒",
+        "",
     );
+});
+
+test("Seedance keeps short audio references while allowing one long soundtrack", () => {
+    const short = { id: "audio-short", name: "节奏.wav", type: "audio/wav", url: "blob:short", durationMs: 8_000 };
+    const long = { id: "audio-long", name: "完整配乐.mp3", type: "audio/mpeg", url: "blob:long", durationMs: 29_000 };
+    const plan = partitionSeedanceAudioReferences("qy-seedance-2.5", [short, long]);
+    assert.deepEqual(plan.referenceAudios, [short]);
+    assert.equal(plan.soundtrack, long);
+    assert.equal(plan.error, "");
+});
+
+test("Seedance rejects multiple long soundtrack candidates instead of silently dropping one", () => {
+    const first = { id: "audio-1", name: "第一段.mp3", type: "audio/mpeg", url: "blob:first", durationMs: 20_000 };
+    const second = { id: "audio-2", name: "第二段.mp3", type: "audio/mpeg", url: "blob:second", durationMs: 20_000 };
+    assert.equal(partitionSeedanceAudioReferences("qy-seedance-2.5", [first, second]).error, "当前暂只支持 1 条长音频作为成片配乐，请先合并音频");
 });

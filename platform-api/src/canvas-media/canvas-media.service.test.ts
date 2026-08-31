@@ -4,7 +4,7 @@ import { BadRequestException } from "@nestjs/common";
 
 import type { PrismaService } from "../prisma/prisma.service";
 import type { WorkspaceService } from "../workspaces/workspace.service";
-import { CanvasMediaService, validateMimeType, validateStorageKey } from "./canvas-media.service";
+import { buildAudioMuxArguments, CanvasMediaService, validateMimeType, validateStorageKey } from "./canvas-media.service";
 
 const workspaces = { resolve: async () => ({ id: "workspace-a" }) } as unknown as WorkspaceService;
 
@@ -29,4 +29,35 @@ test("导演台允许 GLB 和 GLTF 模型媒体", () => {
     assert.doesNotThrow(() => validateMimeType("model/gltf-binary"));
     assert.doesNotThrow(() => validateMimeType("model/gltf+json"));
     assert.throws(() => validateMimeType("text/html"), BadRequestException);
+});
+
+test("音视频合成保留视频画面并让音频覆盖视频时长", () => {
+    assert.deepEqual(buildAudioMuxArguments("/tmp/input.mp4", "/tmp/music.mp3", "/tmp/output.mp4"), [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        "/tmp/input.mp4",
+        "-stream_loop",
+        "-1",
+        "-i",
+        "/tmp/music.mp3",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-af",
+        "aresample=async=1:first_pts=0",
+        "-shortest",
+        "-movflags",
+        "+faststart",
+        "/tmp/output.mp4",
+    ]);
 });
