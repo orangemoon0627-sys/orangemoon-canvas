@@ -23,6 +23,10 @@
 
 橙月画布是一款面向图片与视频创作的节点式 AI 工作台。本分支基于 [basketikun/infinite-canvas](https://github.com/basketikun/infinite-canvas) 开发，保留原项目作者、仓库标识与 AGPL-3.0 开源许可；产品界面使用“橙月画布”品牌。
 
+**在线入口**：https://canvas.orangemoon.tech
+
+**一句话介绍**：把 AI 图像与视频创作整理成一套可以持续复用、随时回到具体画面修改的工作流——创作项目化，每一步都有中间产物可检查；这条学到的东西，会变成下一条的输入。
+
 > [!CAUTION]
 > 项目目前处于开发阶段。账户、钱包、人工充值、官方模型计费、账户级画布云同步和单机媒体持久化已可用于内部试用；队列、对象存储、正式商户支付和生产监控尚未完成，不建议直接作为公网收费服务使用。
 >
@@ -138,6 +142,10 @@ Compose 会启动 PostgreSQL、一次性迁移、平台 API、云端 Canvas Agen
 学 AI，上 L 站：[LinuxDO](https://linux.do/)
 
 点击链接加入群聊【AI开源交流】：https://qm.qq.com/q/DFnKzZ807u
+
+## 关于橙月
+
+橙月画布属于「橙月 Orange Moon」产品集合。橙月是一位独立开发者用 Vibe Coding 半年做出的 8 个 AI 产品集合，包括：本源、达尔文、好好说汪、Codex 部署助手、数字人工厂、电商实验室、此岸、内容云信。共同主张：把复杂留给系统，把决定权留给人；降低门槛，而非制造门槛。品牌站：https://orangemoon.tech
 
 ## 开源协议
 
