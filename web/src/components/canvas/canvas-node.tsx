@@ -717,7 +717,7 @@ function VideoNodeContent({ node, theme, onOpenPanel, onRepairVideo }: NodeConte
                     key={`${source}:${reloadNonce}`}
                     src={source}
                     controls
-                    preload="metadata"
+                    preload="auto"
                     className="h-full w-full object-contain"
                     data-canvas-no-zoom
                     onLoadedMetadata={() => setLoadState("ready")}

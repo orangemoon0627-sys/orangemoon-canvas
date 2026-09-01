@@ -133,7 +133,8 @@ export class CanvasMediaController {
   }
 }
 
-export const MAX_MEDIA_RANGE_BYTES = 4 * 1024 * 1024;
+// 让浏览器一次预取更长的连续片段，降低公网播放时的请求间隙和缓冲抖动。
+export const MAX_MEDIA_RANGE_BYTES = 16 * 1024 * 1024;
 
 export function parseByteRange(
   value: string | undefined,

@@ -22,6 +22,7 @@ test("媒体 Range 拒绝越界和无效区间", () => {
 });
 
 test("开放和超大 Range 被限制为有限分块", () => {
+  assert.equal(MAX_MEDIA_RANGE_BYTES, 16 * 1024 * 1024);
   const total = MAX_MEDIA_RANGE_BYTES * 3;
   assert.deepEqual(parseByteRange("bytes=0-", total), {
     start: 0,
