@@ -9,6 +9,7 @@ import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { estimateGenerationProgress, formatGenerationEta } from "@/lib/canvas/canvas-generation-progress";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { getActiveWorkspaceId } from "@/services/workspace-session";
+import { canvasVideoPreload } from "@/lib/canvas/video-playback";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canvas";
@@ -62,6 +63,7 @@ type CanvasNodeProps = {
 type NodeContentRendererProps = {
     node: CanvasNodeData;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    isSelected: boolean;
     isEditingContent: boolean;
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     isBatchRoot: boolean;
@@ -421,6 +423,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     <NodeContent
                         node={data}
                         theme={theme}
+                        isSelected={isSelected}
                         isEditingContent={isEditingContent}
                         textareaRef={textareaRef}
                         isBatchRoot={isBatchRoot}
@@ -666,17 +669,19 @@ function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batc
     return content;
 }
 
-function VideoNodeContent({ node, theme, onOpenPanel, onRepairVideo }: NodeContentRendererProps) {
+function VideoNodeContent({ node, theme, isSelected, onOpenPanel, onRepairVideo }: NodeContentRendererProps) {
     const [source, setSource] = useState("");
     const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
     const [repairing, setRepairing] = useState(false);
     const [reloadNonce, setReloadNonce] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(false);
     const content = node.metadata?.content || "";
     const storageKey = node.metadata?.storageKey || "";
 
     useEffect(() => {
         let active = true;
         setLoadState("loading");
+        setIsPlaying(false);
         if (content) {
             setSource(playableVideoUrl(content));
             return () => {
@@ -717,11 +722,14 @@ function VideoNodeContent({ node, theme, onOpenPanel, onRepairVideo }: NodeConte
                     key={`${source}:${reloadNonce}`}
                     src={source}
                     controls
-                    preload="auto"
+                    preload={canvasVideoPreload(isSelected, isPlaying)}
                     className="h-full w-full object-contain"
                     data-canvas-no-zoom
                     onLoadedMetadata={() => setLoadState("ready")}
                     onCanPlay={() => setLoadState("ready")}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                    onEnded={() => setIsPlaying(false)}
                     onError={() => setLoadState("error")}
                 />
             ) : null}

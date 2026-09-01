@@ -41,7 +41,9 @@ const STORAGE_KEY_PATTERN =
   /^[A-Za-z][A-Za-z0-9_-]{0,31}:[A-Za-z0-9_-]{8,120}$/;
 const ALLOWED_MIME_TYPE =
   /^(?:image|video|audio)\/[A-Za-z0-9.+-]+$|^model\/gltf(?:\+json|-binary)$|^application\/(?:gltf-buffer|octet-stream)$/;
-export const PLAYBACK_VIDEO_MAX_BITRATE = 4_500_000;
+// Keep the playback asset below the bandwidth available on typical client
+// connections so a single video can play without chasing its buffer.
+export const PLAYBACK_VIDEO_MAX_BITRATE = 2_400_000;
 const execFileAsync = promisify(execFile);
 
 @Injectable()
@@ -434,11 +436,11 @@ function videoPlaybackEncodingArguments() {
     "-threads",
     "2",
     "-b:v",
-    "4M",
+    "1.8M",
     "-maxrate",
-    "4.5M",
+    "2M",
     "-bufsize",
-    "9M",
+    "4M",
     "-pix_fmt",
     "yuv420p",
     "-profile:v",
@@ -448,7 +450,7 @@ function videoPlaybackEncodingArguments() {
     "-fps_mode",
     "cfr",
     "-g",
-    "60",
+    "48",
     "-keyint_min",
     "1",
     "-sc_threshold",

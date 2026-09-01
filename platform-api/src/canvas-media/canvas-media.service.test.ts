@@ -14,6 +14,7 @@ import {
   canvasMediaUrl,
   CanvasMediaService,
   needsVideoPlaybackOptimization,
+  PLAYBACK_VIDEO_MAX_BITRATE,
   validateMimeType,
   validateStorageKey,
 } from "./canvas-media.service";
@@ -88,11 +89,11 @@ test("音视频合成保留视频画面并让音频覆盖视频时长", () => {
       "-threads",
       "2",
       "-b:v",
-      "4M",
+      "1.8M",
       "-maxrate",
-      "4.5M",
+      "2M",
       "-bufsize",
-      "9M",
+      "4M",
       "-pix_fmt",
       "yuv420p",
       "-profile:v",
@@ -102,7 +103,7 @@ test("音视频合成保留视频画面并让音频覆盖视频时长", () => {
       "-fps_mode",
       "cfr",
       "-g",
-      "60",
+      "48",
       "-keyint_min",
       "1",
       "-sc_threshold",
@@ -128,6 +129,7 @@ test("音视频合成保留视频画面并让音频覆盖视频时长", () => {
 });
 
 test("在线播放转码使用低码率 H.264、CFR、短关键帧和受控线程", () => {
+  assert.equal(PLAYBACK_VIDEO_MAX_BITRATE, 2_400_000);
   assert.deepEqual(
     buildVideoPlaybackArguments("/tmp/input.mp4", "/tmp/output.mp4"),
     [
@@ -149,11 +151,11 @@ test("在线播放转码使用低码率 H.264、CFR、短关键帧和受控线�
       "-threads",
       "2",
       "-b:v",
-      "4M",
+      "1.8M",
       "-maxrate",
-      "4.5M",
+      "2M",
       "-bufsize",
-      "9M",
+      "4M",
       "-pix_fmt",
       "yuv420p",
       "-profile:v",
@@ -163,7 +165,7 @@ test("在线播放转码使用低码率 H.264、CFR、短关键帧和受控线�
       "-fps_mode",
       "cfr",
       "-g",
-      "60",
+      "48",
       "-keyint_min",
       "1",
       "-sc_threshold",
@@ -191,7 +193,7 @@ test("只有不适合在线播放的视频才需要转码", () => {
     needsVideoPlaybackOptimization({
       codecName: "h264",
       pixelFormat: "yuv420p",
-      bitRate: 4_000_000,
+      bitRate: 1_800_000,
     }),
     false,
   );
@@ -199,7 +201,7 @@ test("只有不适合在线播放的视频才需要转码", () => {
     needsVideoPlaybackOptimization({
       codecName: "h264",
       pixelFormat: "yuv420p",
-      bitRate: 9_700_000,
+      bitRate: 4_000_000,
     }),
     true,
   );
