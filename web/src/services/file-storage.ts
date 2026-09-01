@@ -4,7 +4,8 @@ import { downloadAccountMedia, queueAccountMediaUpload } from "@/services/accoun
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 
-const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
+// 编码策略升级后，避免继续读取旧的高码率视频 Blob。
+const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files_v2" });
 const objectUrls = new Map<string, string>();
 
 export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {

@@ -250,7 +250,10 @@ export type ProviderBundleQuote = {
 };
 
 export class PlatformApiError extends Error {
-    constructor(public readonly status: number, message: string) {
+    constructor(
+        public readonly status: number,
+        message: string,
+    ) {
         super(message);
     }
 }
@@ -429,7 +432,7 @@ export function importGeneratedVideoMedia(url: string) {
 
 export async function downloadCanvasMedia(storageKey: string) {
     const workspaceId = getActiveWorkspaceId();
-    const response = await fetch(`/platform-api/canvas-media/${encodeURIComponent(storageKey)}`, { credentials: "include", headers: { Accept: "*/*", ...(workspaceId ? { "X-Workspace-Id": workspaceId } : {}) } });
+    const response = await fetch(`/platform-api/canvas-media/${encodeURIComponent(storageKey)}?v=2`, { cache: "no-cache", credentials: "include", headers: { Accept: "*/*", ...(workspaceId ? { "X-Workspace-Id": workspaceId } : {}) } });
     if (!response.ok) {
         const contentType = response.headers.get("content-type") || "";
         const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text().catch(() => "");

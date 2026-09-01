@@ -524,7 +524,9 @@ function LoadingContent({ node, theme }: Pick<NodeContentRendererProps, "node" |
                 <span className="text-[11px] font-semibold tabular-nums">{progress.progress}%</span>
             </div>
             <div className="w-full max-w-52 space-y-2">
-                <div className="text-xs font-medium" style={{ color: theme.node.text }}>{progress.stage}</div>
+                <div className="text-xs font-medium" style={{ color: theme.node.text }}>
+                    {progress.stage}
+                </div>
                 <div className="h-1.5 overflow-hidden rounded-full" style={{ background: theme.node.stroke }}>
                     <div className="h-full rounded-full transition-[width] duration-700 ease-out" style={{ width: `${progress.progress}%`, background: theme.node.activeStroke }} />
                 </div>
@@ -677,18 +679,24 @@ function VideoNodeContent({ node, theme, onOpenPanel, onRepairVideo }: NodeConte
         setLoadState("loading");
         if (content) {
             setSource(playableVideoUrl(content));
-            return () => { active = false; };
+            return () => {
+                active = false;
+            };
         }
         if (!storageKey) {
             setSource("");
-            return () => { active = false; };
+            return () => {
+                active = false;
+            };
         }
         void resolveMediaUrl(storageKey).then((url) => {
             if (!active) return;
             setSource(url);
             if (!url) setLoadState("error");
         });
-        return () => { active = false; };
+        return () => {
+            active = false;
+        };
     }, [content, reloadNonce, storageKey]);
 
     if (!content && !storageKey)
@@ -719,13 +727,19 @@ function VideoNodeContent({ node, theme, onOpenPanel, onRepairVideo }: NodeConte
             ) : null}
             {loadState === "loading" ? (
                 <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/65 text-white">
-                    <div className="flex items-center gap-2 text-xs"><LoaderCircle className="size-4 animate-spin" />正在载入视频</div>
+                    <div className="flex items-center gap-2 text-xs">
+                        <LoaderCircle className="size-4 animate-spin" />
+                        正在载入视频
+                    </div>
                 </div>
             ) : null}
             {loadState === "error" ? (
                 <div className="absolute inset-0 grid place-items-center bg-black/80 px-5 text-center text-white">
                     <div className="space-y-3">
-                        <div><div className="text-xs font-medium">视频无法加载</div><div className="mt-1 text-[10px] text-white/55">{canRepair ? "可迁移到橙月媒体库后继续播放" : "请检查网络后重新载入"}</div></div>
+                        <div>
+                            <div className="text-xs font-medium">视频无法加载</div>
+                            <div className="mt-1 text-[10px] text-white/55">{canRepair ? "可迁移到橙月媒体库后继续播放" : "请检查网络后重新载入"}</div>
+                        </div>
                         <button
                             type="button"
                             disabled={repairing}
@@ -762,9 +776,9 @@ function VideoNodeContent({ node, theme, onOpenPanel, onRepairVideo }: NodeConte
 function playableVideoUrl(value: string) {
     if (!value.includes("/platform-api/canvas-media/")) return value;
     const workspaceId = getActiveWorkspaceId();
-    if (!workspaceId) return value;
     const url = new URL(value, window.location.origin);
-    url.searchParams.set("workspaceId", workspaceId);
+    if (workspaceId) url.searchParams.set("workspaceId", workspaceId);
+    if (!url.searchParams.has("v")) url.searchParams.set("v", "2");
     return value.startsWith("http") ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
 }
 
