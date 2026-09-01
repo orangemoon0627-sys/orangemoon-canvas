@@ -6,7 +6,9 @@ export type UploadedFile = { url: string; storageKey: string; bytes: number; mim
 
 // 编码策略升级后，避免继续读取旧的高码率视频 Blob。
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files_v2" });
+const cacheVersionStore = localforage.createInstance({ name: "infinite-canvas", storeName: "media_cache_versions_v1" });
 const objectUrls = new Map<string, string>();
+const cacheVersions = new Map<string, string>();
 
 export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
@@ -21,12 +23,18 @@ export async function uploadMediaFile(input: string | Blob, prefix = "file"): Pr
 
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
+    const version = mediaVersion(fallback);
     const cached = objectUrls.get(storageKey);
-    if (cached) return cached;
-    const blob = await loadMediaBlob(storageKey);
+    if (cached && (!version || (await readCacheVersion(storageKey)) === version)) return cached;
+    if (cached) {
+        URL.revokeObjectURL(cached);
+        objectUrls.delete(storageKey);
+    }
+    const blob = await loadMediaBlob(storageKey, version);
     if (!blob) return fallback;
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
+    if (version) await writeCacheVersion(storageKey, version);
     return url;
 }
 
@@ -37,20 +45,25 @@ export async function getMediaBlob(storageKey: string) {
 export async function setMediaBlob(storageKey: string, blob: Blob) {
     await store.setItem(storageKey, blob);
     void queueAccountMediaUpload(storageKey, blob).catch(() => undefined);
+    const previous = objectUrls.get(storageKey);
+    if (previous) URL.revokeObjectURL(previous);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
+    await clearCacheVersion(storageKey);
     return url;
 }
 
-async function loadMediaBlob(storageKey: string) {
+async function loadMediaBlob(storageKey: string, version?: string) {
     const local = await store.getItem<Blob>(storageKey);
-    if (local) return local;
+    if (local && (!version || (await readCacheVersion(storageKey)) === version)) return local;
     try {
         const cloud = await downloadAccountMedia(storageKey);
         await store.setItem(storageKey, cloud);
+        if (version) await writeCacheVersion(storageKey, version);
         return cloud;
     } catch {
-        return null;
+        // 带版本的媒体不能回退到旧本地 Blob，否则会把已经替换的高码率视频重新播出来。
+        return version ? null : local;
     }
 }
 
@@ -60,9 +73,36 @@ export async function deleteStoredMedia(keys: Iterable<string>) {
             const url = objectUrls.get(key);
             if (url) URL.revokeObjectURL(url);
             objectUrls.delete(key);
+            await clearCacheVersion(key);
             await store.removeItem(key);
         }),
     );
+}
+
+async function readCacheVersion(storageKey: string) {
+    if (cacheVersions.has(storageKey)) return cacheVersions.get(storageKey);
+    const version = await cacheVersionStore.getItem<string>(storageKey);
+    if (version) cacheVersions.set(storageKey, version);
+    return version || "";
+}
+
+async function writeCacheVersion(storageKey: string, version: string) {
+    cacheVersions.set(storageKey, version);
+    await cacheVersionStore.setItem(storageKey, version);
+}
+
+async function clearCacheVersion(storageKey: string) {
+    cacheVersions.delete(storageKey);
+    await cacheVersionStore.removeItem(storageKey);
+}
+
+function mediaVersion(value: string) {
+    if (!value || value.startsWith("blob:") || value.startsWith("data:")) return "";
+    try {
+        return new URL(value, window.location.origin).searchParams.get("v") || "";
+    } catch {
+        return "";
+    }
 }
 
 export async function cleanupUnusedMedia(usedData: unknown) {

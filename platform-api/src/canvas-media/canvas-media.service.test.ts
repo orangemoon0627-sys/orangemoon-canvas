@@ -1,5 +1,9 @@
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { BadRequestException } from "@nestjs/common";
 
 import type { PrismaService } from "../prisma/prisma.service";
@@ -233,4 +237,59 @@ test("媒体 URL 使用 checksum 版本避免旧缓存复用", () => {
     canvasMediaUrl("video:Abcdefgh_123"),
     "/platform-api/canvas-media/video%3AAbcdefgh_123",
   );
+});
+
+test("视频媒体可用同一存储编号替换旧的高码率文件", async () => {
+  const previousMediaDir = process.env.PLATFORM_MEDIA_DIR;
+  const mediaDir = await mkdtemp(join(tmpdir(), "orangemoon-media-test-"));
+  const userId = "user-a";
+  const storageKey = "video:replace_12345678";
+  const digest = createHash("sha256")
+    .update(`${userId}\0${storageKey}`)
+    .digest("hex");
+  const target = join(mediaDir, digest.slice(0, 2), digest);
+  await mkdir(join(mediaDir, digest.slice(0, 2)), { recursive: true });
+  await writeFile(target, "old-video");
+  let upserted = false;
+  const prisma = {
+    canvasMedia: {
+      findUnique: async () => ({
+        userId,
+        workspaceId: "workspace-a",
+        storageKey,
+        mimeType: "video/mp4",
+        bytes: BigInt(9),
+        checksum: "old-checksum",
+      }),
+      upsert: async ({ update }: { update: { bytes: number; checksum: string } }) => {
+        upserted = true;
+        return {
+          userId,
+          workspaceId: "workspace-a",
+          storageKey,
+          mimeType: "video/mp4",
+          bytes: BigInt(update.bytes),
+          checksum: update.checksum,
+        };
+      },
+    },
+  } as unknown as PrismaService;
+
+  process.env.PLATFORM_MEDIA_DIR = mediaDir;
+  try {
+    await new CanvasMediaService(prisma, workspaces).saveBufferForWorkspace(
+      userId,
+      "workspace-a",
+      storageKey,
+      "video/mp4",
+      Buffer.from("new-video"),
+      { replaceExisting: true },
+    );
+    assert.equal(await readFile(target, "utf8"), "new-video");
+    assert.equal(upserted, true);
+  } finally {
+    if (previousMediaDir === undefined) delete process.env.PLATFORM_MEDIA_DIR;
+    else process.env.PLATFORM_MEDIA_DIR = previousMediaDir;
+    await rm(mediaDir, { recursive: true, force: true });
+  }
 });

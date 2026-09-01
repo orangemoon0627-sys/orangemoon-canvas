@@ -101,6 +101,7 @@ export class CanvasMediaService {
     storageKey: string,
     mimeType: string,
     buffer: Buffer,
+    options?: { replaceExisting?: boolean },
   ) {
     const stream = Readable.from(buffer) as ReadableStream & {
       truncated?: boolean;
@@ -111,6 +112,7 @@ export class CanvasMediaService {
       storageKey,
       mimeType,
       stream,
+      options?.replaceExisting === true,
     );
   }
 
@@ -132,6 +134,7 @@ export class CanvasMediaService {
       storageKey,
       optimized.mimeType,
       optimized.buffer,
+      { replaceExisting: true },
     );
   }
 
@@ -141,6 +144,7 @@ export class CanvasMediaService {
     storageKey: string,
     mimeType: string,
     stream: ReadableStream & { truncated?: boolean },
+    replaceExisting = false,
   ) {
     validateStorageKey(storageKey);
     validateMimeType(mimeType);
@@ -148,7 +152,8 @@ export class CanvasMediaService {
       where: { workspaceId_storageKey: { workspaceId, storageKey } },
     });
     const target = mediaPath(userId, storageKey);
-    if (existing && (await fileExists(target))) return existing;
+    if (existing && (await fileExists(target)) && !replaceExisting)
+      return existing;
     const temporary = `${target}.${randomUUID()}.partial`;
     await mkdir(dirname(target), { recursive: true });
     const hash = createHash("sha256");
