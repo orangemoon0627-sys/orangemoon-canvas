@@ -100,6 +100,18 @@ export class CanvasMediaController {
       workspaceHeader || workspaceQuery,
       storageKey,
     );
+    const currentVersion = result.media.checksum.trim().slice(0, 16);
+    const requestVersion = mediaRequestVersion(request.url);
+    if (requestVersion !== currentVersion) {
+      return reply
+        .code(307)
+        .header(
+          "Location",
+          canonicalMediaRequestUrl(request.url, storageKey, result.media.checksum),
+        )
+        .header("Cache-Control", "no-store")
+        .send();
+    }
     const total = Number(result.media.bytes);
     const range = parseByteRange(request.headers.range, total);
     const etag = `"${result.media.checksum}"`;
@@ -131,6 +143,33 @@ export class CanvasMediaController {
       createReadStream(result.path, { start: range.start, end: range.end }),
     );
   }
+}
+
+/**
+ * Return the canonical, checksum-versioned media URL while preserving the
+ * workspace and any future query parameters used by the media endpoint.
+ *
+ * The URL is intentionally built from the storage key rather than the
+ * incoming pathname: old snapshots may contain a differently escaped key,
+ * while the route must always emit one safe, stable encoding.
+ */
+export function canonicalMediaRequestUrl(
+  requestUrl: string,
+  storageKey: string,
+  checksum: string,
+) {
+  const parsed = new URL(requestUrl || "/", "http://orangemoon.invalid");
+  parsed.searchParams.delete("v");
+  parsed.searchParams.set("v", checksum.trim().slice(0, 16));
+  return `/platform-api/canvas-media/${encodeURIComponent(storageKey)}${parsed.search}`;
+}
+
+function mediaRequestVersion(requestUrl: string) {
+  return (
+    new URL(requestUrl || "/", "http://orangemoon.invalid").searchParams
+      .get("v")
+      ?.trim() || ""
+  );
 }
 
 // 让浏览器一次预取更长的连续片段，降低公网播放时的请求间隙和缓冲抖动。

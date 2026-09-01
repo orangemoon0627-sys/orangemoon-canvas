@@ -10,6 +10,7 @@ import { estimateGenerationProgress, formatGenerationEta } from "@/lib/canvas/ca
 import { resolveMediaUrl } from "@/services/file-storage";
 import { getActiveWorkspaceId } from "@/services/workspace-session";
 import { canvasVideoPreload } from "@/lib/canvas/video-playback";
+import { playableCanvasVideoUrl } from "@/lib/canvas/video-url";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canvas";
@@ -683,7 +684,13 @@ function VideoNodeContent({ node, theme, isSelected, onOpenPanel, onRepairVideo 
         setLoadState("loading");
         setIsPlaying(false);
         if (content) {
-            setSource(playableVideoUrl(content));
+            setSource(
+                playableCanvasVideoUrl(
+                    content,
+                    getActiveWorkspaceId(),
+                    window.location.origin,
+                ),
+            );
             return () => {
                 active = false;
             };
@@ -779,15 +786,6 @@ function VideoNodeContent({ node, theme, isSelected, onOpenPanel, onRepairVideo 
             ) : null}
         </div>
     );
-}
-
-function playableVideoUrl(value: string) {
-    if (!value.includes("/platform-api/canvas-media/")) return value;
-    const workspaceId = getActiveWorkspaceId();
-    const url = new URL(value, window.location.origin);
-    if (workspaceId) url.searchParams.set("workspaceId", workspaceId);
-    if (!url.searchParams.has("v")) url.searchParams.set("v", "2");
-    return value.startsWith("http") ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
 }
 
 function EmptyVideoAction({ icon, label, theme, onClick }: { icon: ReactNode; label: string; theme: NodeContentRendererProps["theme"]; onClick: () => void }) {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canonicalMediaRequestUrl,
   MAX_MEDIA_RANGE_BYTES,
   parseByteRange,
 } from "./canvas-media.controller";
@@ -36,4 +37,18 @@ test("开放和超大 Range 被限制为有限分块", () => {
     start: total - MAX_MEDIA_RANGE_BYTES,
     end: total - 1,
   });
+});
+
+test("过期媒体版本会规范化到当前校验和并保留工作空间参数", () => {
+  const checksum = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+  const requestUrl = "/platform-api/canvas-media/video%3Acloud-video-a?v=old-version&workspaceId=workspace-a";
+
+  assert.equal(
+    canonicalMediaRequestUrl(
+      requestUrl,
+      "video:cloud-video-a",
+      checksum,
+    ),
+    "/platform-api/canvas-media/video%3Acloud-video-a?workspaceId=workspace-a&v=abcdef0123456789",
+  );
 });
