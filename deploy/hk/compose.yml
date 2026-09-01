@@ -106,8 +106,8 @@ services:
       - egress
     volumes:
       - media-data:/var/lib/orangemoon/media
-    mem_limit: 512m
-    mem_reservation: 128m
+    mem_limit: 768m
+    mem_reservation: 192m
     cpus: 1.00
     pids_limit: 256
     security_opt:

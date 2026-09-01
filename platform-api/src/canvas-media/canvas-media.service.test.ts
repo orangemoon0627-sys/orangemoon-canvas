@@ -65,6 +65,7 @@ test("音视频合成保留视频画面并让音频覆盖视频时长", () => {
       "-hide_banner",
       "-loglevel",
       "error",
+      "-nostdin",
       "-y",
       "-i",
       "/tmp/input.mp4",
@@ -80,6 +81,8 @@ test("音视频合成保留视频画面并让音频覆盖视频时长", () => {
       "libx264",
       "-preset",
       "veryfast",
+      "-threads",
+      "2",
       "-b:v",
       "4M",
       "-maxrate",
@@ -120,13 +123,14 @@ test("音视频合成保留视频画面并让音频覆盖视频时长", () => {
   );
 });
 
-test("在线播放转码使用低码率 H.264、CFR 和短关键帧", () => {
+test("在线播放转码使用低码率 H.264、CFR、短关键帧和受控线程", () => {
   assert.deepEqual(
     buildVideoPlaybackArguments("/tmp/input.mp4", "/tmp/output.mp4"),
     [
       "-hide_banner",
       "-loglevel",
       "error",
+      "-nostdin",
       "-y",
       "-i",
       "/tmp/input.mp4",
@@ -138,6 +142,8 @@ test("在线播放转码使用低码率 H.264、CFR 和短关键帧", () => {
       "libx264",
       "-preset",
       "veryfast",
+      "-threads",
+      "2",
       "-b:v",
       "4M",
       "-maxrate",
